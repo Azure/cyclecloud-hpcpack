@@ -1,14 +1,29 @@
+# HPC Pack 2016 Update 1 for CycleCloud
 
-# Contributing
+---
+## Features
 
-This project welcomes contributions and suggestions.  Most contributions require you to agree to a
-Contributor License Agreement (CLA) declaring that you have the right to, and actually do, grant us
-the rights to use your contribution. For details, visit https://cla.microsoft.com.
+This cluster launches a bastion host (for secure connection to the vnet), an
+AD domain controller and an HPC Pack head node.  As jobs are submitted to the
+head node, compute nodes with autoscale as needed.
 
-When you submit a pull request, a CLA-bot will automatically determine whether you need to provide
-a CLA and decorate the PR appropriately (e.g., label, comment). Simply follow the instructions
-provided by the bot. You will only need to do this once across all repos using our CLA.
+### Prerequisites & Setup
 
-This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/).
-For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or
-contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.
+CycleCloud can now simultaneously orchestrate environments described in ARM 
+templates.  This feature requires version 7.x release of CycleCloud.
+
+This project relies on the [HPC Pack github](https://github.com/MsHpcPack/HPCPack2016)
+in particular the DSC resources.  Project setup to download dependencies
+are [scripted](setup_project.sh).
+
+A certificate for internal cluster communication is also [included](hpcpack/blobs/hpc-comm.pfx)
+and the certificate file password is the template default.  The certificate was
+created with the additional included [script](setup_cert.ps1) if you wish to
+create your own.
+
+Once the project script has been executed you're ready to upload the project 
+to the configuration locker, import the cluster, and make cluster edits in the UI.
+
+    cyclecloud project_upload
+    cyclecloud import_cluster HPCPack -c hpcpack -f hpcpack/templates/hpcpack_with_ad.txt
+

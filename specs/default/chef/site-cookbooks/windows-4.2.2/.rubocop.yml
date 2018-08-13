@@ -1,0 +1,38 @@
+# rubocop todo
+
+Lint/HandleExceptions:
+  Exclude:
+    - 'libraries/registry_helper.rb'
+    - 'libraries/windows_helper.rb'
+
+Lint/ShadowingOuterLocalVariable:
+  Exclude:
+    - 'libraries/registry_helper.rb'
+
+Lint/UselessAssignment:
+  Exclude:
+    - 'libraries/registry_helper.rb'
+
+Metrics/BlockNesting:
+  Max: 5
+
+Style/AccessorMethodName:
+  Exclude:
+    - 'libraries/version.rb'
+
+Style/ClassVars:
+  Exclude:
+    - 'libraries/registry_helper.rb'
+
+Style/GuardClause:
+  Exclude:
+    - 'libraries/registry_helper.rb'
+    - 'libraries/windows_privileged.rb'
+
+Style/IfInsideElse:
+  Exclude:
+    - 'libraries/powershell_helper.rb'
+
+Style/RegexpLiteral:
+  Exclude:
+    - 'resources/task.rb'

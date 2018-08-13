@@ -1,0 +1,211 @@
+###########################
+## Microsoft AD Server
+###########################
+
+
+[parameters General Settings]
+Order = 10
+
+    [[parameters Cloud Service Provider Configuration]]
+    Description = Configure the Cloud Provider account options.
+    Order = 10
+
+        [[[parameter CloudProvider]]]
+        Label = Cloud Provider
+        ParameterType = Cloud.Provider
+        DefaultValue = azure
+        Hidden = true
+
+        [[[parameter Credentials]]]
+        Description = The credentials for the cloud provider
+        ParameterType = Cloud.Credentials
+
+        [[[parameter Region]]]
+        Label = Region
+        Description = Deployment Location
+        ParameterType = Cloud.Region
+        DefaultValue = eastus2
+
+
+[parameters Cluster Software]
+Order = 20
+    
+    [[parameters Node Access]]
+    Description = "Specify the credentials required for access to the node.  The Keypair Path specifies the path on local machines for cyclecloud CLI access."
+    Order = 20
+
+        [[[parameter KeyPairLocation]]]
+        Label = Keypair Path
+        Description = The path to the private SSH key to use for the `cyclecloud` user on linux nodes.
+        DefaultValue = /opt/cycle_server/.ssh/cyclecloud.pem
+        Required = True
+
+        [[[parameter Username]]]
+        Label = Username
+        Description = The username for the built-in local user / AD-admin on all nodes for direct access.
+        DefaultValue = cyclecloud
+
+        [[[parameter Password]]]
+        Label = Password
+        ParameterType = Password
+        Description = The password for the built-in local user / AD-admin on all nodes for direct access. (The supplied password must be between 12-123 characters long and must satisfy at least 3 of password complexity requirements from the following: 1) Contains an uppercase character 2) Contains a lowercase character 3) Contains a numeric digit 4) Contains a special character)
+
+    [[parameters Software Configuration]]
+    Description = "Add additional software to the nodes from CycleCloud Projects."
+    Order = 20
+    
+        [[[parameter DefaultClusterInitSpecs]]]
+        Label = Default Cluster-Init
+        Description = Cluster init specs to apply to all nodes
+        ParameterType = Cloud.ClusterInitSpecs
+
+        [[[parameter ManagementClusterInitSpecs]]]
+        Label = Master Cluster-Init
+        Description = Cluster init specs to apply to the master node
+        ParameterType = Cloud.ClusterInitSpecs
+
+        [[[parameter ExecuteClusterInitSpecs]]]
+        Label = Exec Cluster-Init
+        Description = Cluster init specs to apply to execute nodes
+        ParameterType = Cloud.ClusterInitSpecs
+
+
+[parameters Compute Backend]
+Order = 30
+
+    [[parameters Instance Types]]
+    Order = 10
+
+        [[[parameter ADServerPrivateIP]]]
+        Description = The static private IP for the AD Node
+        DefaultValue = 10.0.0.5
+
+        [[[parameter ManagerMachineType]]]
+        Label = Manager Machine Type
+        Description = The machine type for the Management nodes
+        ParameterType = Cloud.MachineType
+        DefaultValue = Standard_DS3_v2
+	
+
+    [[parameters PFC Certificate]]
+    Order = 20
+
+        [[[parameter PfxFileName]]]
+        Label = FileName
+        Description = Filename of pfxcert in the blob dir.
+        DefaultValue = hpc-comm.pfx
+
+        [[[parameter PfxPassword]]]
+        Label = PfxPassword
+        ParameterType = Password
+        Description = The password pfxcert in the blob dir.
+        DefaultValue = "corn-bellows-knitting"
+
+
+[parameters Networking]
+Order = 40
+    
+    [[parameters General]]
+    Order = 10
+
+        [[[parameter ReturnProxy]]]
+        Label = Return Proxy
+        DefaultValue = true
+        Widget.Plugin = pico.form.BooleanCheckBox
+        Widget.Label = Allow cloud instances to report back their state
+
+        [[[parameter MasterPublicIp]]]
+        Label = Master has Public IP
+        DefaultValue = true
+        Widget.Plugin = pico.form.BooleanCheckBox
+        Widget.Label = Assign a public ip address to the master node
+
+    [[parameters Azure Virtual Network Configuration]]
+    Description = If set, use a pre-existing subnet instead of the subnet generated automatically by the cluster environment template.
+    Order = 40
+
+        [[[parameter SubnetId]]]
+        Label = SubnetID
+        Description = Over-ride the Subnet provided by the Environment
+        ParameterType = Azure.Subnet
+        Required = False
+
+
+
+[environment vnet]
+Region = $Region
+ManagedLifecycle=true
+
+# ARM Template URL cannot currently be parameterized well
+# - it is parsed to generate the Cluster Creation UI
+# Upload ARM template to storage account and make blob public to read.
+TemplatePath = projects/hpcpack/blobs/vnet.json
+
+ParameterValues.virtualNetworkName = "hpcpack"
+ParameterValues.subnetName = "compute" 
+ParameterValues.apiVersion = "2016-12-01"
+
+
+[cluster adserver]
+FormLayout = selectionpanel
+IconUrl = http://download.cyclecomputing.com/logos/microsoft-192x192.png
+
+
+   [[node defaults]]
+   Credentials = $Credentials
+   Region = $Region
+   KeypairLocation = $KeypairLocation
+   SubnetId = ${IfThenElse(SubnetId isnt undefined, SubnetId, vnet.resources.hpcpack.properties.subnets.compute.id)}
+
+      [[[configuration]]]
+      cyclecloud.hosts.standalone_dns.enabled = false
+
+      [[[configuration hpcpack]]]
+      install_logviewer = false
+      ad.dns1 = $ADServerPrivateIP      
+      ad.domain = hpc.local
+
+      # IMPORTANT: Currently, the HPC Pack DSC Resource assumes that the System User account
+      #            is the AD Admin (so use $Username and $Password)
+      ad.admin.name = $Username
+      ad.admin.password = $Password
+      cert.filename = $PfxFilename
+      cert.password = $PfxPassword
+
+
+   [[node proxy]]
+   IsReturnProxy = true
+   ImageName = cycle.image.centos7
+   MachineType = Standard_DS2_v2
+
+      [[[network-interface eth0]]]
+      AssociatePublicIpAddress = true
+
+
+   [[node ad]]
+
+   ImageName = cycle.image.win2012
+   MachineType = $ManagerMachineType
+   Username = $Username
+   Password = $Password
+
+      [[[cluster-init hpcpack:default:1.0.0]]]
+
+      [[[configuration]]]
+      run_list = recipe[hpcpack::dc]
+
+      [[[network-interface eth0]]]
+      AssociatePublicIpAddress = false
+      PrivateIp = $ADServerPrivateIP
+
+      [[[input-endpoint RDP]]]
+      PrivatePort = 3389
+      PublicPort = 3389
+
+      [[[volume datadisk]]]
+      Size = 100
+      SSD = true
+      Azure.Lun = 0
+
+
+

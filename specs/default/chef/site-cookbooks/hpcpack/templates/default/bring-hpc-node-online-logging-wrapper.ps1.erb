@@ -1,0 +1,3 @@
+
+powershell.exe -executionpolicy unrestricted -file <%= node['cyclecloud']['bootstrap'] %>\\bring-hpc-node-online.ps1 >> <%= node['cyclecloud']['bootstrap'] %>\\verify-node-online.log
+

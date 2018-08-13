@@ -1,0 +1,5 @@
+
+powershell.exe -executionpolicy unrestricted -file <%= node['cyclecloud']['bootstrap'] %>\\autoscale.ps1 -reap true >> <%= node['cyclecloud']['bootstrap'] %>\\autoscale.log
+
+# echo "Autoscaling with REAP DISABLED" >> C:\cycle\jetpack\system\bootstrap\\autoscale.log
+# powershell.exe -executionpolicy unrestricted -file <%= node['cyclecloud']['bootstrap'] %>\\autoscale.ps1 >> <%= node['cyclecloud']['bootstrap'] %>\\autoscale.log

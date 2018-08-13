@@ -1,0 +1,83 @@
+# Verbose by default
+$PSDefaultParameterValues['New-Item:Verbose'] = $true
+
+# $secpasswd = ConvertTo-SecureString '<%= node['hpcpack']['ad']['admin']['password'] %>' -AsPlainText -Force
+# $mycreds = New-Object System.Management.Automation.PSCredential ("<%= node['hpcpack']['ad']['admin']['name'] %>", $secpasswd)
+# Reset-ComputerMachinePassword -Server <%= node['hpcpack']['ad']['dns1'] %> -Credential $mycreds -Verbose
+
+# Allow self-signed certificatest for CycleCloud
+Add-Type @"
+    using System;
+    using System.Net;
+    using System.Net.Security;
+    using System.Security.Cryptography.X509Certificates;
+    public class ServerCertificateValidationCallback
+    {
+        public static void Ignore()
+        {
+            ServicePointManager.ServerCertificateValidationCallback += 
+                delegate
+                (
+                    Object obj, 
+                    X509Certificate certificate, 
+                    X509Chain chain, 
+                    SslPolicyErrors errors
+                )
+                {
+                    return true;
+                };
+        }
+    }
+"@
+
+[System.Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::tls12
+[ServerCertificateValidationCallback]::Ignore();
+
+
+function terminateSelf() {
+    $instanceID = "<%=node['cyclecloud']['instance']['id'] %>"
+    $autoscale_url = "<%= @node[:cyclecloud][:cluster][:autoscale][:stop_callback] %>"
+    $autoscale_user = "<%= @node[:cyclecloud][:config][:username] %>"
+    $autoscale_pw = "<%= @node[:cyclecloud][:config][:password] %>"    
+    $cc_url = $autoscale_url + "?instance=" + $instanceID
+    $base64AuthInfo = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(("{0}:{1}" -f $autoscale_user,$autoscale_pw)))
+    $response = Invoke-RestMethod -Uri $cc_url -Headers @{Authorization=("Basic {0}" -f $base64AuthInfo)} -Method 'Get'
+}
+
+Add-PsSnapin Microsoft.HPC
+Set-Content Env:CCP_SCHEDULER "<%= node['hpcpack']['hn']['hostname'] %>"
+
+$this_node = Get-HpcNode -Name (hostname) -Scheduler <%= node['hpcpack']['hn']['hostname'] %>
+
+$should_terminate = $false
+if ($this_node.HealthState -eq "Unapproved") {
+    $msg = "Node " + (hostname) + " is UNAPPROVED."
+    jetpack log $msg
+    $should_terminate = $true
+    # Assign-HpcNodeTemplate -NodeName (hostname) `
+    #     -Name "Default ComputeNode Template" -Confirm:$false `
+    #     -Scheduler <%= node['hpcpack']['hn']['hostname'] %>
+}
+
+if ($this_node.Location -eq "") {
+    Set-HPCNode -Name (hostname) -DataCenter <%= node['cyclecloud']['node']['group_id'] %> `
+        -Rack <%= node['cyclecloud']['instance']['id'] %> `
+        -Scheduler <%= node['hpcpack']['hn']['hostname'] %> -Verbose
+}
+
+if ( "Online" -ne $this_node.NodeState ) {
+    $msg = "Node " + (hostname) + " is OFFLINE."
+    jetpack log $msg
+    $should_terminate = $true
+    # echo "Bringing HPC worker node back online..."
+    # Set-HpcNodeState -Name (hostname) -Scheduler <%= node['hpcpack']['hn']['hostname'] %> -State Online -Verbose
+}
+
+if ( $should_terminate -eq $true ) {
+    # $node_details = $this_node | Select-Object -Property * | Out-String 
+    # Limit message length
+    $node_details = $this_node | Select-Object -Property NodeState, NodeHealth, HealthState, Provisioned, Template, NodeRole, Groups
+    $msg = "Terminating abnormal node " + (hostname) + " [ Instance: <%=node['cyclecloud']['instance']['id'] %>, IP: <%=node['cyclecloud']['instance']['ipv4'] %> ].  Failed to join HPC cluster.   DETAILS: " + $node_details + "END"
+    jetpack log $msg
+    terminateSelf
+}

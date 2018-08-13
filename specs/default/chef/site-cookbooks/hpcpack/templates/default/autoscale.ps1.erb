@@ -1,0 +1,478 @@
+param(
+    [switch] $initialize, 
+    [switch] $reap
+    )
+
+# Verbose by default
+$PSDefaultParameterValues['New-Item:Verbose'] = $true
+
+Write-Verbose ""
+Get-Date -Format g
+Write-Verbose "Starting Autoscale Run"
+
+Add-PsSnapin Microsoft.HPC
+$verbosePreference = "continue"
+$sql_serv = "<%= node['hostname'] %>\COMPUTECLUSTER"
+$sql_db = "HPCPackAutoscale"
+$sql_tbl = "NodeState"
+$default_job_timespan = New-Timespan -Hours <%= @timespan_hr %> -Minutes <%= @timespan_min %> -Seconds <%= @timespan_sec %>
+$add_node_threshold = New-Timespan -Hours <%= @threshold_hr %> -Minutes <%= @threshold_min %> -Seconds <%= @threshold_sec %>
+
+$min_node_count = <%= @min_node_count %>
+
+# HACK: Until we have autoscale-by-node, estimate min_node_count
+$estimated_cores_per_node = <%= @estimated_cores_per_node %>
+$min_core_count = $min_node_count * $estimated_cores_per_node
+
+$autoscale_url = "<%= @node[:cyclecloud][:cluster][:autoscale][:stop_callback] %>"
+$autoscale_user = "<%= @node[:cyclecloud][:config][:username] %>"
+$autoscale_pw = "<%= @node[:cyclecloud][:config][:password] %>"
+
+# Allow self-signed certificatest for CycleCloud
+Add-Type @"
+    using System;
+    using System.Net;
+    using System.Net.Security;
+    using System.Security.Cryptography.X509Certificates;
+    public class ServerCertificateValidationCallback
+    {
+        public static void Ignore()
+        {
+            ServicePointManager.ServerCertificateValidationCallback += 
+                delegate
+                (
+                    Object obj, 
+                    X509Certificate certificate, 
+                    X509Chain chain, 
+                    SslPolicyErrors errors
+                )
+                {
+                    return true;
+                };
+        }
+    }
+"@
+
+[System.Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::tls12
+[ServerCertificateValidationCallback]::Ignore();
+
+
+function testVariable() {
+    $sql_db
+}
+
+function initializeDb() {
+
+    $createquery = "
+    CREATE DATABASE $sql_db;
+    GO
+    USE $sql_db;
+    
+    CREATE TABLE $sql_tbl (
+        NodeName varchar(255) NOT NULL,
+        InstanceId varchar(255),
+        FirstSeen datetime,
+        LastKnownActive datetime,
+        IsActive bit,
+        EverActive bit,
+        DesignatedToRemove bit,
+        Persistent bit,
+        NodeArray varchar(255) ,
+        PRIMARY KEY (NodeName)
+    );
+    GO"
+    Invoke-SQLcmd -ServerInstance $sql_serv -query $createquery 
+}
+
+function updateNewNodes() {
+    $nodes = Get-HpcNode | Where-Object {!($_.IsHeadNode)}
+    $db_hpcnodes = Invoke-sqlcmd -ServerInstance $sql_serv -Database $sql_db `
+                        -Query "SELECT NodeName FROM $sql_tbl"
+
+    $new_nodes = $nodes | ?{$db_hpcnodes.nodename -notcontains $_.NetBiosName}
+    Write-Verbose "New nodes found $($new_nodes)"
+    $departed_hosts = $db_hpcnodes.nodename | ?{$nodes.NetBiosName -notcontains $_}
+
+    $insertquery="
+    USE $sql_db;
+    "
+    foreach($new_node in $new_nodes) 
+        {
+        
+        # Location being used for instance id
+        $words = $new_node.Location -split '\',-1,'SimpleMatch'
+        $instance_id = $words[-1]
+        if (!$instance_id) {
+            Write-Verbose "No instance ID found for new host $($nodename) "
+            continue
+        }
+        $nodename = $new_node.NetBiosName
+        Write-Verbose "Adding new host $($nodename) - $($instance_id)"
+        $insertquery +=  "
+        INSERT INTO NodeState 
+                (NodeName
+                ,InstanceId
+                ,FirstSeen
+                ,EverActive
+                ,DesignatedToRemove
+                ,Persistent)
+            VALUES 
+                ('$nodename'
+                ,'$instance_id'
+                ,GETDATE()
+                ,0
+                ,0
+                ,0);
+        " 
+        }
+    $insertquery += "
+    GO"
+    #echo $insertquery
+    Invoke-SQLcmd -ServerInstance $sql_serv -query $insertquery -Database $sql_db
+}
+
+function lastAllocatedTimes() {
+    $allocations = @{}
+    $jobs = Get-HpcJob -State All | Where-Object { $_.allocatednodes } | Where-Object { ( $_.endtime -eq $null ) -or ( $_.endtime -gt (Get-Date).AddHours(-2)) }
+    foreach( $j in $jobs ) {
+        $endtime = if ($j.endtime) { $j.endtime } else { date }
+        if ( $j.allocatednodes ) {
+            foreach($a in $j.allocatednodes.split(',')) {
+                if ( ($allocations[$a] -eq $null ) -or ( $allocations[$a] -lt $endtime )) {
+                    $allocations[$a] = $endtime
+                }
+            }  
+        }
+    }
+    $allocations
+}
+
+
+function markIdleAfterJobs() {
+    # Do not remove Persistent nodes just because they are idle
+    $updatequery = "
+    UPDATE NodeState
+    SET DesignatedToRemove = 1
+    WHERE LastKnownActive < dateadd(second,-<%= @wait_after_jobs_s %>,getdate()) AND EverActive=1 AND (Persistent = 0 or Persistent is null);
+    "
+    #echo $updatequery
+    Invoke-SQLcmd -ServerInstance $sql_serv -query $updatequery -Database $sql_db
+}
+
+function markIdleBeforeJobs() {
+    # Do not remove Persistent nodes just because they are idle
+    $updatequery = "
+    UPDATE NodeState
+    SET DesignatedToRemove = 1
+    WHERE FirstSeen < dateadd(second,-<%= @wait_before_jobs_s %>,getdate()) AND EverActive=0 AND (Persistent = 0 or Persistent is null);
+    "
+    #echo $updatequery
+    Invoke-SQLcmd -ServerInstance $sql_serv -query $updatequery -Database $sql_db
+}
+
+function markPersistentNodes() {
+    $persistent_nodes = Invoke-sqlcmd -ServerInstance $sql_serv -Database $sql_db `
+      -Query "SELECT NodeName FROM $sql_tbl WHERE Persistent = 1;"
+    if ($persistent_nodes.Length -lt $min_node_count) {
+        $needed_persistent_nodes = $min_node_count - $persistent_nodes.Length
+        Write-Verbose "Marking $needed_persistent_nodes nodes of min $min_node_count as Persistent."
+        $updatequery = "
+        UPDATE TOP($needed_persistent_nodes) NodeState 
+        SET Persistent = 1
+        WHERE DesignatedToRemove = 0 AND (Persistent = 0 or Persistent is null);
+        "
+        #echo $updatequery
+        Invoke-SQLcmd -ServerInstance $sql_serv -query $updatequery -Database $sql_db
+    }
+    
+}
+
+function updateNodes() {
+    markPersistentNodes
+
+    # $mets = Get-HpcMetricValue -Name HPCCoresInUse
+    # $active_nodes = $mets | Where-Object {$_.Value -gt 0}
+    # $inactive_nodes = $mets | Where-Object {$_.Value -eq 0}
+
+    $active_nodes = lastAllocatedTimes
+    foreach($node in $active_nodes.GetEnumerator()) {
+        $node_name = $node.Key
+        $last_active = $node.Value
+        $is_active = if ( $last_active -gt (Get-Date).AddSeconds(-60) ) { 1 } else { 0 }
+        $wait_before_jobs_expired = if ($last_active -lt (Get-Date).AddSeconds(-<%= @wait_before_jobs_s %>)) { 1 } else { 0 }
+        $wait_after_jobs_expired = if ($last_active -lt (Get-Date).AddSeconds(-<%= @wait_after_jobs_s %>)) { 1 } else { 0 }
+        $cond = "( '" + $node_name.trim() + "' )"
+        $updatequery = "
+        USE $sql_db;
+        UPDATE NodeState 
+        SET LastKnownActive = '$last_active', EverActive = 1 , IsActive = $is_active, DesignatedToRemove = 0
+        WHERE NodeName IN $cond;
+        GO
+        "
+        echo $updatequery
+        Invoke-SQLcmd -ServerInstance $sql_serv -query $updatequery -Database $sql_db
+    }
+    
+    # Update Idle nodes 
+    markIdleBeforeJobs
+    markIdleAfterJobs
+
+}
+
+
+function targetCoreCount() {
+    try { $jobs = Get-HpcJob -State Configuring,Submitted,Queued,Running } 
+    catch { return 0 }
+
+    $target_batch_cores = targetBatchCoreCount($jobs)
+    $target_soa_cores = targetSOACoreCount($jobs)
+    Write-Verbose "Target cores [ Batch : $target_batch_cores , SOA : $target_soa_cores ]"
+    $target_cpus =  $target_batch_cores + $target_soa_cores
+    return $target_cpus
+}
+
+function targetSOACoreCount($jobs) {
+    Write-Verbose "TODO : SOA Job scaling does not currently reduce core count while the job is running..."
+    
+    $total_cpu_time = New-TimeSpan
+    $total_core_request = 0
+    foreach($job in $jobs){
+        if (($job.State -ne "Running") -and ($job.State -ne "Queued")) {
+            continue
+        }
+        $outstanding_calls = $job.OutstandingCalls
+        if ($outstanding_calls -eq 0) {
+            continue
+        }  
+        $mincores = $job.MinCores
+        $job_core_request = [math]::max( $mincores , $outstanding_calls )
+
+        if ($job.Exclusive) {
+            # HACK : until we have autoscale by node
+            $job_core_request = $job_core_request * $estimated_cores_per_node
+        }
+        
+        Write-Verbose "SOA Job $job.id (exclusive: $job.Exclusive) has $outstanding_calls requires $job_core_request"
+
+        $total_core_request = $total_core_request + $job_core_request
+    }
+    
+    return $total_core_request
+}
+
+    
+function targetBatchCoreCount($jobs) {
+    $total_cpu_time = New-TimeSpan
+    $total_core_request = 0
+    foreach($job in $jobs){
+        if (($job.State -ne "Running") -and ($job.State -ne "Queued")) {
+            continue
+        }
+        
+        $mincores = $job.MinCores
+        $ntasks = $job.NumberOfTasks
+        $total_core_request = $total_core_request + ($mincores * $ntasks)
+        $runtime = $default_job_timespan
+        if ($job.RunTime -ne $null) {
+            $runtime = $job.RunTime            
+        }
+        $remain_run_time = $runtime.Subtract($job.ElapsedTime)
+        Write-Verbose "remain_run_time = $remain_run_time"
+        if ($mincores -gt 1) {
+            $remain_run_time = [TimeSpan] ($remain_run_time.Ticks * [math]::Max($mincores, $ntasks))
+        }
+
+
+        $tasks = Get-HpcTask -JobId $job.id
+        $total_task_mincores = 0
+        $total_task_remain_run_time = New-TimeSpan
+        foreach($task in $tasks){
+            $task_mincores = 1            
+            if ($task.mincores -ne $null) {
+                $task_mincores = $task.MinCores
+            }
+            if ($task.Exclusive) {
+                # HACK : until we have autoscale by node
+                $task_mincores = $task_mincores * $estimated_cores_per_node
+            }
+        
+            
+            $total_task_core_request = $total_task_core_request + $task_mincores
+            $task_run_time = $default_job_timespan
+            if ($task.RunTime -ne $null){
+                $task_run_time = $task.RunTime
+            }
+            $remain_task_run_time = $task_run_time.Subtract($task.ElapsedTime)
+            if ($task_mincores -gt 1) {
+                $remain_task_run_time = [TimeSpan] ($remain_task_run_time.Ticks * $task_mincores)
+            }
+            $total_task_remain_run_time = $total_task_remain_run_time.Add($remain_task_run_time)
+        }
+
+        
+        $remain_job_run_time = $remain_run_time
+        if ($remain_run_time -lt $total_task_remain_run_time){
+            $remain_job_run_time = $total_task_remain_run_time
+        }
+        $total_cpu_time = $total_cpu_time.Add($remain_job_run_time)
+    }
+    Write-Verbose "total_cpu_time / add_node_threshold = $total_cpu_time.Ticks / $add_node_threshold.Ticks"
+    Write-Verbose "$total_cpu_time"
+    $target_cpus = [math]::floor($total_cpu_time.Ticks / $add_node_threshold.Ticks)
+    return [math]::min( $target_cpus , $total_core_request )
+}
+
+function currentComputeCapacity() {
+    $sum_cores = Get-HPCNode -GroupName ComputeNodes | Measure-Object -Property ProcessorCores -Sum
+    return $sum_cores.Sum
+}
+
+function currentOnlineComputeCapacity() {
+    $sum_cores = Get-HPCNode -GroupName ComputeNodes -State Online | Measure-Object -Property ProcessorCores -Sum
+    return $sum_cores.Sum
+}
+
+
+function berserker() {
+    echo "no-op; would remove idle nodes."
+    $remove_nodes = Invoke-sqlcmd -ServerInstance $sql_serv -Database $sql_db `
+    -Query "SELECT NodeName FROM $sql_tbl WHERE DesignatedToRemove = 1;"
+
+    $demand=targetCoreCount
+
+    foreach($remove_node in $remove_nodes){
+        echo "Removing $remove_node.NodeName"
+        $remove_node | format-list *
+        
+        $state = Get-HpcNode -Name $remove_node.NodeName
+        if ( -not $state ) {
+
+            Write-Verbose "Terminating unknown node: $remove_node.NodeName [cores: $remove_node.ProcessorCores, online cores: $online_cores, min cores: $min_core_count]"
+            terminateNode($remove_node.NodeName)
+            continue
+
+        }
+        # else {
+        #     $state | format-list *
+        # }
+
+        $online_cores = currentOnlineComputeCapacity
+        Write-Verbose "Current: $online_cores  Target: $demand"
+        if ($online_cores -ge $demand + $remove_node.ProcessorCores) {
+            if ($state.NodeState -eq "Online") {
+                Write-Verbose "Set node offline $remove_node.NodeName [cores: $remove_node.ProcessorCores, online cores: $online_cores, min cores: $min_core_count]"
+                Set-HpcNodeState -Name $remove_node.NodeName -State "offline"
+            } elseif ($state.NodeState -in "Offline", "Unknown" ) {
+                Write-Verbose "Terminating offline node: $remove_node.NodeName [cores: $remove_node.ProcessorCores, online cores: $online_cores, min cores: $min_core_count]"
+                terminateNode($remove_node.NodeName)
+            }
+        }
+    }
+    
+}
+
+function terminateNode($nodeName){
+    $removeId = Invoke-sqlcmd -ServerInstance $sql_serv -Database $sql_db `
+    -Query "SELECT InstanceId FROM $sql_tbl WHERE NodeName = '$nodeName';"
+    
+    $Time=Get-Date
+    Write-Verbose "$time Terminating instance node $nodeName :  $removeId.InstanceId"
+    try {
+        terminateInstance( $removeId.InstanceId) 
+    catch { 
+        echo "Failed to remove node $nodeName"
+        echo  $_.Exception.Message
+        break
+    }
+    
+
+    Write-Verbose "Removing node $nodeName"
+    Remove-HPCNode -Name $nodeName
+
+    Write-Verbose "Removing node $nodeName from DB"
+    $pop =  Invoke-sqlcmd -ServerInstance $sql_serv -Database $sql_db `
+    -Query "DELETE FROM $sql_tbl WHERE NodeName = '$nodeName';"
+}
+
+function terminateInstance($instanceID) {
+    $cc_url = $autoscale_url + "?instance=" + $instanceID
+    $base64AuthInfo = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(("{0}:{1}" -f $autoscale_user,$autoscale_pw)))
+    $response = Invoke-RestMethod -Uri $cc_url -Headers @{Authorization=("Basic {0}" -f $base64AuthInfo)} -Method 'Get'
+}
+
+
+function autostart() {
+
+    # TODO: get NodeGroup and convert to slot_type
+    $demand=targetCoreCount
+    echo "Autostarting $demand cores of type : execute"
+
+    
+    $demand = [math]::max( $demand , $min_core_count )
+
+    jetpack autoscale -n execute -c $demand
+}
+
+function dbPop($nodeName) {
+    $removeId = Invoke-sqlcmd -ServerInstance $sql_serv -Database $sql_db `
+    -Query "SELECT InstanceId FROM $sql_tbl WHERE NodeName = '$nodeName';"
+    Write-Verbose "Removing node $nodeName from DB"
+    $pop =  Invoke-sqlcmd -ServerInstance $sql_serv -Database $sql_db `
+    -Query "DELETE FROM $sql_tbl WHERE NodeName = '$nodeName';"
+    return $removeId.InstanceId
+}
+
+function showDB() {
+    Invoke-Sqlcmd -ServerInstance $sql_serv -Database $sql_db -query "
+    SELECT *
+    FROM [NodeState];"
+}
+
+function cleanDB() {
+    # Clear out nodes that are in DB but no longer online
+    $nodes = Get-HpcNode | Where-Object {!($_.IsHeadNode)}
+    $db_hpcnodes = Invoke-sqlcmd -ServerInstance $sql_serv -Database $sql_db `
+                        -Query "SELECT NodeName FROM $sql_tbl"
+
+    $departed_hosts = $db_hpcnodes.nodename | ?{$nodes.NetBiosName -notcontains $_}
+    Write-Verbose "Departed nodes found $($departed_nodes)"
+
+    foreach($departed_host in $departed_hosts){
+        dbPop($departed_host)
+    }
+
+}
+
+
+function submitSleepJob($time_s, $num_tasks=1) {
+    $job = New-HpcJob -Name "sleep_job"
+    for ($i=0; $i -lt $num_tasks; $i++) {
+        Add-HpcTask -Job $job -CommandLine "ping localhost -n $time_s"
+    }
+    Submit-HpcJob -Job $job
+}
+
+
+function submitSoaEchoJob($time_s, $num_tasks=1, $insecure=$true) {
+     pushd $env:CCP_HOME\bin
+     if ($insecure) {
+        .\EchoClient.exe -h <%= node['hostname'] %> -jobName soaEchoTest -time $time_s -n $num_tasks -insecure
+     } else {
+        .\EchoClient.exe -h <%= node['hostname'] %> -jobName soaEchoTest -time $time_s -n $num_tasks
+     }
+     popd
+}
+
+if ($initialize) {
+    initializeDb
+    return
+}
+
+updateNewNodes
+cleanDB
+autostart
+updateNodes
+
+if ($reap) {
+    berserker
+}
