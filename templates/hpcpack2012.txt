@@ -58,11 +58,13 @@ Order = 20
         Label = Username
         Description = The username for the built-in local user / AD-admin on all nodes for direct access.
         DefaultValue = cyclecloud
+        Required = True
 
         [[[parameter Password]]]
         Label = Password
         ParameterType = Password
         Description = The password for the built-in local user / AD-admin on all nodes for direct access. (The supplied password must be between 12-123 characters long and must satisfy at least 3 of password complexity requirements from the following: 1) Contains an uppercase character 2) Contains a lowercase character 3) Contains a numeric digit 4) Contains a special character)
+        Required = True
 
     [[parameters Software Configuration]]
     Description = "Add additional software to the nodes from CycleCloud Projects."
