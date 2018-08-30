@@ -136,6 +136,13 @@ powershell_script 'wait-for-offline-state' do
         }
         start-sleep -s 10
     }
+    $tries=0
+    while ( "OK" -ne $this_node.HealthState ) {
+        if($tries -gt '10'){
+            throw "Timed out waiting for OK healthstate.  Node $env:COMPUTERNAME still shows health: $this_node.HealthState"
+        }
+        start-sleep -s 10
+    }
 
     echo "Node $env:COMPUTERNAME has reached state: $this_node.NodeState.   Adding delay for HPC Pack 2012 registration issue..."
     start-sleep -s 60
@@ -145,44 +152,48 @@ powershell_script 'wait-for-offline-state' do
     password node['hpcpack']['ad']['admin']['password']
     retries 3
     retry_delay 5
-    only_if "Add-PsSnapin Microsoft.HPC; 'Online' -ne (Get-HpcNode -Name (hostname) -Scheduler #{node['hpcpack']['hn']['hostname']}).NodeState  && (Get-Command Get-HpcNode).Version.Major -lt 5"
-end
-
-powershell_script 'bring-node-online' do
-    code <<-EOH
-    Add-PsSnapin Microsoft.HPC
-    Set-Content Env:CCP_SCHEDULER "#{node['hpcpack']['hn']['hostname']}"
-    $this_node = Get-HpcNode -Name (hostname) -Scheduler #{node['hpcpack']['hn']['hostname']}
-    if ( "Online" -ne $this_node.NodeState ) {
-        echo "Bringing HPC worker node online..."
-        Set-HpcNodeState -Name (hostname) -Scheduler #{node['hpcpack']['hn']['hostname']} `
-            -State Online -Verbose
-    }
-    EOH
-    domain node['hpcpack']['ad']['domain']
-    user node['hpcpack']['ad']['admin']['name']
-    password node['hpcpack']['ad']['admin']['password']
-    retries 3
-    retry_delay 5
-end
-
-# Re-add the node periodically if it loses AD connectivity (TODO: why is this so common?)
-template "#{bootstrap_dir}\\bring-hpc-node-online.ps1" do
-  source "bring-hpc-node-online.ps1.erb"
-end
-template "#{bootstrap_dir}\\bring-hpc-node-online-logging-wrapper.ps1" do
-  source "bring-hpc-node-online-logging-wrapper.ps1.erb"
+    only_if "Add-PsSnapin Microsoft.HPC; 'Online' -ne (Get-HpcNode -Name (hostname) -Scheduler #{node['hpcpack']['hn']['hostname']}).NodeState  -and (Get-Command Get-HpcNode).Version.Major -lt 5"
 end
 
 
-windows_task 'hpc-verify-node-online' do
-    task_name "HPCNodeVerifyOnline"
-    command   "powershell.exe -file #{bootstrap_dir}\\bring-hpc-node-online-logging-wrapper.ps1"
-    user      "#{node['hpcpack']['ad']['domain']}\\#{node['hpcpack']['ad']['admin']['name']}"
-    password  node['hpcpack']['ad']['admin']['password']
-    frequency :minute
-    frequency_modifier 5
-    #only_if { node['cyclecloud']['cluster']['autoscale']['start_enabled'] }
+defer_block "Defer bringing node Online until end of converge" do
+
+    powershell_script 'bring-node-online' do
+        code <<-EOH
+        Add-PsSnapin Microsoft.HPC
+        Set-Content Env:CCP_SCHEDULER "#{node['hpcpack']['hn']['hostname']}"
+        $this_node = Get-HpcNode -Name (hostname) -Scheduler #{node['hpcpack']['hn']['hostname']}
+        if ( "Online" -ne $this_node.NodeState ) {
+            echo "Bringing HPC worker node online..."
+            Set-HpcNodeState -Name (hostname) -Scheduler #{node['hpcpack']['hn']['hostname']} `
+                -State Online -Verbose
+        }
+        EOH
+        domain node['hpcpack']['ad']['domain']
+        user node['hpcpack']['ad']['admin']['name']
+        password node['hpcpack']['ad']['admin']['password']
+        retries 3
+        retry_delay 5
+    end
+
+    # Re-add the node periodically if it loses AD connectivity (TODO: why is this so common?)
+    template "#{bootstrap_dir}\\bring-hpc-node-online.ps1" do
+      source "bring-hpc-node-online.ps1.erb"
+    end
+    template "#{bootstrap_dir}\\bring-hpc-node-online-logging-wrapper.ps1" do
+      source "bring-hpc-node-online-logging-wrapper.ps1.erb"
+    end
+
+
+    windows_task 'hpc-verify-node-online' do
+        task_name "HPCNodeVerifyOnline"
+        command   "powershell.exe -file #{bootstrap_dir}\\bring-hpc-node-online-logging-wrapper.ps1"
+        user      "#{node['hpcpack']['ad']['domain']}\\#{node['hpcpack']['ad']['admin']['name']}"
+        password  node['hpcpack']['ad']['admin']['password']
+        frequency :minute
+        frequency_modifier 5
+        #only_if { node['cyclecloud']['cluster']['autoscale']['start_enabled'] }
+    end
+
+
 end
-
-
