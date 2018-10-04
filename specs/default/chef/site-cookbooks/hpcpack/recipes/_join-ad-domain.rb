@@ -1,7 +1,21 @@
-include_recipe "hpcpack::ps"
-
+include_recipe "hpcpack::_get_secrets"
+include_recipe "hpcpack::_ps"
 bootstrap_dir = node['cyclecloud']['bootstrap']
 modules_dir = "C:\\Program\ Files\\WindowsPowerShell\\Modules"
+
+
+
+# Ensure that the local User has the same password as the AD User
+user node['hpcpack']['ad']['admin']['name'] do
+  password node['hpcpack']['ad']['admin']['password']
+end
+
+# Ensure that the local User is a local Admin 
+group "Administrators" do
+  action :modify
+  members node['hpcpack']['ad']['admin']['name']
+  append true
+end
 
 mod_dir = "#{bootstrap_dir}\\joinAD"
 dsc_script = "JoinADDomain.ps1"

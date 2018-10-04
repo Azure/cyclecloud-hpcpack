@@ -70,6 +70,10 @@ function initializeDb() {
     
     CREATE TABLE $sql_tbl (
         NodeName varchar(255) NOT NULL,
+        NodeState varchar(255),
+        NodeHealth varchar(255),
+        HealthState varchar(255),
+        Template varchar(255),
         InstanceId varchar(255),
         FirstSeen datetime,
         LastKnownActive datetime,
@@ -90,27 +94,61 @@ function updateNewNodes() {
                         -Query "SELECT NodeName FROM $sql_tbl"
 
     $new_nodes = $nodes | ?{$db_hpcnodes.nodename -notcontains $_.NetBiosName}
+    $updated_nodes = $nodes | ?{$db_hpcnodes.nodename -contains $_.NetBiosName -and ($db_hpcnodes.nodestate -ne $_.NodeState -or $db_hpcnodes.healthstate -ne $_.HealthState -or $db_hpcnodes.nodehealth -ne $_.NodeHealth -or $db_hpcnodes.template -ne $_.Template)}
     Write-Verbose "New nodes found $($new_nodes)"
     $departed_hosts = $db_hpcnodes.nodename | ?{$nodes.NetBiosName -notcontains $_}
 
     $insertquery="
     USE $sql_db;
     "
+    foreach($updated_node in $updated_nodes) 
+        {
+        $nodename = $updated_node.NetBiosName
+        
+        # Location being used for instance id
+        $words = $updated_node.Location -split '\',-1,'SimpleMatch'
+        $instance_id = $words[-1]
+        if (!$instance_id) {
+            Write-Verbose "No instance ID found for new host $nodename "
+            $instance_id = "no_instance_id"
+        }
+
+        $nodestate = $updated_node.NodeState
+        $nodehealth = $updated_node.NodeHealth
+        $healthstate = $updated_node.HealthState
+        $template = $updated_node.Template
+
+        Write-Verbose "Updating host $($nodename) - $($instance_id) : [ $nodestate / $healthstate / $template ]"
+        $insertquery += "
+        UPDATE NodeState
+            SET NodeState = '$nodestate', NodeHealth = '$nodehealth', HealthState = '$healthstate', Template = '$template', InstanceId = '$instance_id'
+            WHERE NodeName = '$nodename';
+        "
+        }
     foreach($new_node in $new_nodes) 
         {
+        $nodename = $new_node.NetBiosName
         
         # Location being used for instance id
         $words = $new_node.Location -split '\',-1,'SimpleMatch'
         $instance_id = $words[-1]
         if (!$instance_id) {
-            Write-Verbose "No instance ID found for new host $($nodename) "
-            continue
+            Write-Verbose "No instance ID found for new host $nodename "
+            $instance_id = "no_instance_id"
         }
-        $nodename = $new_node.NetBiosName
+
+        $nodestate = $new_node.NodeState
+        $nodehealth = $new_node.NodeHealth        
+        $healthstate = $new_node.HealthState
+        $template = $new_node.Template
         Write-Verbose "Adding new host $($nodename) - $($instance_id)"
         $insertquery +=  "
         INSERT INTO NodeState 
                 (NodeName
+                ,NodeState
+                ,NodeHealth
+                ,HealthState
+                ,Template
                 ,InstanceId
                 ,FirstSeen
                 ,EverActive
@@ -118,6 +156,10 @@ function updateNewNodes() {
                 ,Persistent)
             VALUES 
                 ('$nodename'
+                ,'$nodestate'
+                ,'$nodehealth'
+                ,'$healthstate'
+                ,'$template'
                 ,'$instance_id'
                 ,GETDATE()
                 ,0
@@ -130,6 +172,7 @@ function updateNewNodes() {
     #echo $insertquery
     Invoke-SQLcmd -ServerInstance $sql_serv -query $insertquery -Database $sql_db
 }
+
 
 function lastAllocatedTimes() {
     $allocations = @{}
@@ -147,13 +190,24 @@ function lastAllocatedTimes() {
     $allocations
 }
 
+# TODO: Should we use this more aggressive removal of Error State nodes? 
+function markUnhealthy() {
+    # Quickly remove Error state nodes
+    $updatequery = "
+    UPDATE NodeState
+    SET DesignatedToRemove = 1
+    WHERE (NodeState = 'Online') AND (HealthState != 'OK');
+    "
+    #echo $updatequery
+    Invoke-SQLcmd -ServerInstance $sql_serv -query $updatequery -Database $sql_db
+}
 
 function markIdleAfterJobs() {
     # Do not remove Persistent nodes just because they are idle
     $updatequery = "
     UPDATE NodeState
     SET DesignatedToRemove = 1
-    WHERE LastKnownActive < dateadd(second,-<%= @wait_after_jobs_s %>,getdate()) AND EverActive=1 AND (Persistent = 0 or Persistent is null);
+    WHERE LastKnownActive < dateadd(second,-<%= @wait_after_jobs_s %>,getdate()) AND EverActive=1 AND (Persistent = 0 or Persistent is null or (HealthState != 'OK'));
     "
     #echo $updatequery
     Invoke-SQLcmd -ServerInstance $sql_serv -query $updatequery -Database $sql_db
@@ -164,7 +218,7 @@ function markIdleBeforeJobs() {
     $updatequery = "
     UPDATE NodeState
     SET DesignatedToRemove = 1
-    WHERE FirstSeen < dateadd(second,-<%= @wait_before_jobs_s %>,getdate()) AND EverActive=0 AND (Persistent = 0 or Persistent is null);
+    WHERE FirstSeen < dateadd(second,-<%= @wait_before_jobs_s %>,getdate()) AND EverActive=0 AND (Persistent = 0 or Persistent is null or (HealthState != 'OK'));
     "
     #echo $updatequery
     Invoke-SQLcmd -ServerInstance $sql_serv -query $updatequery -Database $sql_db
@@ -194,10 +248,20 @@ function updateNodes() {
     # $active_nodes = $mets | Where-Object {$_.Value -gt 0}
     # $inactive_nodes = $mets | Where-Object {$_.Value -eq 0}
 
+
+    $db_hpcnodes = Invoke-sqlcmd -ServerInstance $sql_serv -Database $sql_db `
+                    -Query "SELECT NodeName FROM $sql_tbl"
+
+
     $active_nodes = lastAllocatedTimes
     foreach($node in $active_nodes.GetEnumerator()) {
         $node_name = $node.Key
         $last_active = $node.Value
+        if ($db_hpcnodes.nodename -notcontains $node_name) {
+            # LastAllocatedTimes includes nodes that have already been removed
+            continue
+        }
+        
         $is_active = if ( $last_active -gt (Get-Date).AddSeconds(-60) ) { 1 } else { 0 }
         $wait_before_jobs_expired = if ($last_active -lt (Get-Date).AddSeconds(-<%= @wait_before_jobs_s %>)) { 1 } else { 0 }
         $wait_after_jobs_expired = if ($last_active -lt (Get-Date).AddSeconds(-<%= @wait_after_jobs_s %>)) { 1 } else { 0 }
@@ -217,6 +281,18 @@ function updateNodes() {
     markIdleBeforeJobs
     markIdleAfterJobs
 
+}
+
+
+function assignNodeTemplateToNewNodes() {
+    # TODO: Assign a different node template for each slot_type.
+    $unapproved_nodes = Invoke-sqlcmd -ServerInstance $sql_serv -Database $sql_db `
+      -Query "SELECT NodeName FROM $sql_tbl WHERE NodeHealth = 'OK' and HealthState = 'Unapproved';"
+    foreach($node in $unapproved_nodes) {
+        $templateName = "Default ComputeNode Template"
+        Write-Verbose "Assigning template $templateName to node $node.NodeName"
+        Assign-HpcNodeTemplate -NodeName $node.NodeName -Name $templateName -Confirm:$false
+    }
 }
 
 
@@ -333,6 +409,22 @@ function currentOnlineComputeCapacity() {
 }
 
 
+function listDesignatedToRemove() {
+    Invoke-sqlcmd -ServerInstance $sql_serv -Database $sql_db `
+    -Query "SELECT NodeName FROM $sql_tbl WHERE DesignatedToRemove = 1;"
+}
+
+function listActive() {
+    Invoke-sqlcmd -ServerInstance $sql_serv -Database $sql_db `
+    -Query "SELECT NodeName FROM $sql_tbl WHERE IsActive = 1;"
+}
+
+function listInactive() {
+    Invoke-sqlcmd -ServerInstance $sql_serv -Database $sql_db `
+    -Query "SELECT NodeName, LastKnownActive, EverActive FROM $sql_tbl WHERE IsActive != 1 ORDER BY LastKnownActive;"
+}
+
+
 function berserker() {
     echo "no-op; would remove idle nodes."
     $remove_nodes = Invoke-sqlcmd -ServerInstance $sql_serv -Database $sql_db `
@@ -341,31 +433,33 @@ function berserker() {
     $demand=targetCoreCount
 
     foreach($remove_node in $remove_nodes){
-        echo "Removing $remove_node.NodeName"
-        $remove_node | format-list *
+        echo "Removing $($remove_node.NodeName)"
         
         $state = Get-HpcNode -Name $remove_node.NodeName
         if ( -not $state ) {
 
-            Write-Verbose "Terminating unknown node: $remove_node.NodeName [cores: $remove_node.ProcessorCores, online cores: $online_cores, min cores: $min_core_count]"
+            Write-Verbose "Terminating unknown node: $($remove_node.NodeName)"
             terminateNode($remove_node.NodeName)
             continue
 
         }
-        # else {
-        #     $state | format-list *
-        # }
+        else {
+            $state | format-list *
+        }
 
         $online_cores = currentOnlineComputeCapacity
         Write-Verbose "Current: $online_cores  Target: $demand"
         if ($online_cores -ge $demand + $remove_node.ProcessorCores) {
             if ($state.NodeState -eq "Online") {
-                Write-Verbose "Set node offline $remove_node.NodeName [cores: $remove_node.ProcessorCores, online cores: $online_cores, min cores: $min_core_count]"
+                Write-Verbose "Set node offline $($remove_node.NodeName) [cores: $($state.ProcessorCores), online cores: $online_cores, min cores: $min_core_count]"
                 Set-HpcNodeState -Name $remove_node.NodeName -State "offline"
-            } elseif ($state.NodeState -in "Offline", "Unknown" ) {
-                Write-Verbose "Terminating offline node: $remove_node.NodeName [cores: $remove_node.ProcessorCores, online cores: $online_cores, min cores: $min_core_count]"
-                terminateNode($remove_node.NodeName)
+                continue
             }
+        }
+
+        if ($state.NodeState -in "Offline", "Unknown" ) {
+            Write-Verbose "Terminating offline node: $($remove_node.NodeName) [cores: $($state.ProcessorCores), online cores: $online_cores, min cores: $min_core_count]"
+            terminateNode($remove_node.NodeName)
         }
     }
     
@@ -379,7 +473,7 @@ function terminateNode($nodeName){
     Write-Verbose "$time Terminating instance node $nodeName :  $removeId.InstanceId"
     try {
         terminateInstance( $removeId.InstanceId) 
-    catch { 
+    } catch { 
         echo "Failed to remove node $nodeName"
         echo  $_.Exception.Message
         break
@@ -428,6 +522,13 @@ function showDB() {
     FROM [NodeState];"
 }
 
+function showDBNode($nodename) {
+    Invoke-Sqlcmd -ServerInstance $sql_serv -Database $sql_db -query "
+    SELECT *
+    FROM [NodeState]
+    WHERE NodeName = '$nodename';"
+}
+
 function cleanDB() {
     # Clear out nodes that are in DB but no longer online
     $nodes = Get-HpcNode | Where-Object {!($_.IsHeadNode)}
@@ -469,6 +570,7 @@ if ($initialize) {
 }
 
 updateNewNodes
+assignNodeTemplateToNewNodes
 cleanDB
 autostart
 updateNodes

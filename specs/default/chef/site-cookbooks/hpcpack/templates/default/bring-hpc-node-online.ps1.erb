@@ -67,17 +67,19 @@ if ($this_node.Location -eq "") {
 
 if ( "Online" -ne $this_node.NodeState ) {
     $msg = "Node " + (hostname) + " is OFFLINE."
-    jetpack log $msg
+    jetpack log -p low $msg
     $should_terminate = $true
     # echo "Bringing HPC worker node back online..."
     # Set-HpcNodeState -Name (hostname) -Scheduler <%= node['hpcpack']['hn']['hostname'] %> -State Online -Verbose
 }
 
 if ( $should_terminate -eq $true ) {
-    # $node_details = $this_node | Select-Object -Property * | Out-String 
-    # Limit message length
-    $node_details = $this_node | Select-Object -Property NodeState, NodeHealth, HealthState, Provisioned, Template, NodeRole, Groups
-    $msg = "Terminating abnormal node " + (hostname) + " [ Instance: <%=node['cyclecloud']['instance']['id'] %>, IP: <%=node['cyclecloud']['instance']['ipv4'] %> ].  Failed to join HPC cluster.   DETAILS: " + $node_details + "END"
-    jetpack log $msg
-    terminateSelf
+      echo "Self-termination disabled for now - it seems too aggressive."
+
+#     # $node_details = $this_node | Select-Object -Property * | Out-String 
+#     # Limit message length
+#     $node_details = $this_node | Select-Object -Property NodeState, NodeHealth, HealthState, Provisioned, Template, NodeRole, Groups
+#     $msg = "Terminating abnormal node " + (hostname) + " [ Instance: <%=node['cyclecloud']['instance']['id'] %>, IP: <%=node['cyclecloud']['instance']['ipv4'] %> ].  Failed to join HPC cluster.   DETAILS: " + $node_details + "END"
+#     jetpack log $msg
+#     terminateSelf
 }

@@ -161,6 +161,7 @@ IconUrl = http://download.cyclecomputing.com/logos/microsoft-192x192.png
 
       [[[configuration]]]
       cyclecloud.hosts.standalone_dns.enabled = false
+      cyclecloud.node.prevent_metadata_access = false
 
       [[[configuration hpcpack]]]
       install_logviewer = false

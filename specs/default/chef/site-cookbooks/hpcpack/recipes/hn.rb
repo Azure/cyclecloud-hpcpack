@@ -1,5 +1,6 @@
-include_recipe "hpcpack::ps"
-include_recipe "hpcpack::join-ad-domain"
+include_recipe "hpcpack::_get_secrets"
+include_recipe "hpcpack::_ps"
+include_recipe "hpcpack::_join-ad-domain"
 
 bootstrap_dir = node['cyclecloud']['bootstrap']
 mod_dir = "#{bootstrap_dir}\\installHpcSingleHeadNode"

@@ -2,6 +2,16 @@ default['hpcpack']['ad']['dns1'] = "10.0.0.4"
 default['hpcpack']['ad']['dns2'] = "8.8.8.8"
 default['hpcpack']['hn']['hostname'] = nil
 
+# If "keyvault" and "password_key" are set, look up key in KeyVault
+# (Requires a managed service identity to be associated with the nodes to allow vault access)
+default['hpcpack']['keyvault']['vault_name'] = nil
+default['hpcpack']['keyvault']['admin']['name_key'] = nil
+default['hpcpack']['keyvault']['admin']['password_key'] = nil
+default['hpcpack']['keyvault']['cert']['password_key'] = nil
+
+default['hpcpack']['ad']['admin']['name'] = nil
+default['hpcpack']['ad']['admin']['password'] = nil
+
 # HPC Pack SOA jobs tend to fail if there are 0 cores when submitted
 default['hpcpack']['min_node_count'] = 1
 

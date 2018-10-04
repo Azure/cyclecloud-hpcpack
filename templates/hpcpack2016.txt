@@ -214,7 +214,8 @@ Autoscale = $Autoscale
       cyclecloud.hosts.standalone_dns.enabled = false
       cyclecloud.cluster.autoscale.idle_time_after_jobs = 900
       cyclecloud.cluster.autoscale.idle_time_before_jobs = 3600
-
+      cyclecloud.node.prevent_metadata_access = false
+      
       [[[configuration hpcpack]]]
       install_logviewer = false      
       ad.domain = $ActiveDirectoryDomain
@@ -267,7 +268,7 @@ Autoscale = $Autoscale
       [[[cluster-init hpcpack:default:1.0.0]]]
 
       [[[configuration]]]
-      run_list = recipe[hpcpack::join-ad-domain], recipe[hpcpack::hn]
+      run_list = recipe[hpcpack::hn]
       cyclecloud.discoverable = true
 
       [[[network-interface eth0]]]

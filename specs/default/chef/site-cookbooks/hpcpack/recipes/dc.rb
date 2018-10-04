@@ -1,4 +1,5 @@
-include_recipe "hpcpack::ps"
+include_recipe "hpcpack::_get_secrets"
+include_recipe "hpcpack::_ps"
 
 bootstrap_dir = node['cyclecloud']['bootstrap']
 mod_dir = "#{bootstrap_dir}\\CreateADPDC"
