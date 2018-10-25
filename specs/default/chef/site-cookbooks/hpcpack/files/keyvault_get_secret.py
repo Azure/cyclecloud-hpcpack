@@ -63,7 +63,9 @@ def run():
     access_token = access_token_dict['access_token']
 
     secret_dict = get_keyvault_secret(access_token, vault_name, secret_key)
-    print secret_dict['value']
+    
+    # Output without newline so it may be assigned to script variables
+    sys.stdout.write(secret_dict['value'].strip())
 
 if __name__ == "__main__":
     import sys

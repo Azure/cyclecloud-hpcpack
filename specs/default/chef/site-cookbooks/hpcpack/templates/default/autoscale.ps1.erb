@@ -196,8 +196,9 @@ function markUnhealthy() {
     $updatequery = "
     UPDATE NodeState
     SET DesignatedToRemove = 1
-    WHERE (NodeState = 'Online') AND (HealthState != 'OK');
+    WHERE (NodeState = 'Online') AND (NodeHealth = 'Unreachable');
     "
+
     #echo $updatequery
     Invoke-SQLcmd -ServerInstance $sql_serv -query $updatequery -Database $sql_db
 }
@@ -280,19 +281,41 @@ function updateNodes() {
     # Update Idle nodes 
     markIdleBeforeJobs
     markIdleAfterJobs
+    markUnhealthy
 
 }
 
 
 function assignNodeTemplateToNewNodes() {
     # TODO: Assign a different node template for each slot_type.
+
     $unapproved_nodes = Invoke-sqlcmd -ServerInstance $sql_serv -Database $sql_db `
-      -Query "SELECT NodeName FROM $sql_tbl WHERE NodeHealth = 'OK' and HealthState = 'Unapproved';"
+        -Query "SELECT NodeName FROM $sql_tbl WHERE NodeHealth = 'OK' and HealthState = 'Unapproved';"
+
+    $num_parallel = 0
+    $MAX_PARALLEL = '10'
     foreach($node in $unapproved_nodes) {
-        $templateName = "Default ComputeNode Template"
-        Write-Verbose "Assigning template $templateName to node $node.NodeName"
-        Assign-HpcNodeTemplate -NodeName $node.NodeName -Name $templateName -Confirm:$false
+        # Assign template is slow, so run multiple in parallel
+        Write-Verbose "Assigning template $templateName to node $($node.NodeName)"
+        $assignTemplateBlock = {
+            param($node)
+            $templateName = "Default ComputeNode Template"
+            Add-PsSnapin Microsoft.HPC 
+            Assign-HpcNodeTemplate -NodeName $node.NodeName -Name $templateName -Confirm:$false
+        }
+
+        Start-Job $assignTemplateBlock -ArgumentList $node, $templateName
+
+        # Batch the requests to avoid overloading the manager
+        $num_parallel += 1
+        if($num_parallel -gt $MAX_PARALLEL){
+            Get-Job | Wait-Job | Receive-Job
+            $num_parallel = 0
+        }
     }
+
+    # Wait for completion and get output
+    Get-Job | Wait-Job | Receive-Job
 }
 
 
@@ -570,8 +593,8 @@ if ($initialize) {
 }
 
 updateNewNodes
-assignNodeTemplateToNewNodes
 cleanDB
+assignNodeTemplateToNewNodes
 autostart
 updateNodes
 

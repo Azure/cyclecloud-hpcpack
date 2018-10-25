@@ -37,6 +37,7 @@ jetpack_download node['hpcpack']['cert']['filename'] do
   not_if { ::File.exists?("#{node['jetpack']['downloads']}/#{node['hpcpack']['cert']['filename']}") }
 end
 
+log "Installing hpc comm cert with pass :  [#{node['hpcpack']['cert']['password']}]..." do level :warn end
 powershell_script 'install hpc comm cert' do
     code <<-EOH
     $secpasswd = ConvertTo-SecureString '#{node['hpcpack']['cert']['password']}' -AsPlainText -Force
@@ -55,37 +56,3 @@ if node['hpcpack']['install_logviewer']
   end
 end
 
-# Allow users to uninstall specific windows updates (some apps haven't been ported to latest sec. updates)
-# - Most updates require a reboot, and domain join may fail if we delay, so uninstall all
-#   and then reboot immediately
-if not node['hpcpack']['uninstall_updates'].nil?
-  reboot_required = false
-  ruby_block "set_reboot_required" do
-    block do
-      reboot_required = true
-    end
-    action :nothing
-  end
-
-  node['hpcpack']['uninstall_updates'].each do |kb|
-    kb_number = kb.downcase
-    kb_number.slice!('kb')
-    powershell_script "uninstall windows update: #{kb}" do
-      code <<-EOH
-      wusa.exe /uninstall /kb:#{kb_number} /norestart /quiet
-      EOH
-      only_if "dism.exe /online /get-packages | findstr /I #{kb}"
-      notifies :run, 'ruby_block[set_reboot_required]', :immediately    
-    end
-  end
-
-  # Notify the reboot resource after loop
-  ruby_block "reboot_after_updates" do
-    block do
-      Chef::Log.warn("Rebooting after uninstalling #{node['hpcpack']['uninstall_updates'].inspect}...")
-    end
-    action :run
-    only_if { reboot_required == true }
-    notifies :reboot_now, 'reboot[Restart Computer]', :immediately
-  end
-end

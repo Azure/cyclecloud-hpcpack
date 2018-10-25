@@ -86,3 +86,13 @@ end
 
 
 include_recipe "hpcpack::autostart" if node['cyclecloud']['cluster']['autoscale']['start_enabled']
+
+powershell_script 'Set HPC Pack Configuration' do
+    code <<-EOH
+    Add-PsSnapin Microsoft.HPC
+
+    Set-HpcClusterProperty -HeartbeatInterval #{node['hpcpack']['config']['HeartbeatInterval']} -InactivityCount #{node['hpcpack']['config']['InactivityCount']}
+
+    EOH
+end
+

@@ -52,7 +52,7 @@ $this_node = Get-HpcNode -Name (hostname) -Scheduler <%= node['hpcpack']['hn']['
 $should_terminate = $false
 if ($this_node.HealthState -eq "Unapproved") {
     $msg = "Node " + (hostname) + " is UNAPPROVED."
-    jetpack log $msg
+    jetpack log -p low $msg
     $should_terminate = $true
     # Assign-HpcNodeTemplate -NodeName (hostname) `
     #     -Name "Default ComputeNode Template" -Confirm:$false `

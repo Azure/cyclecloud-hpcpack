@@ -134,19 +134,19 @@ powershell_script 'wait-for-offline-state' do
     $tries=0
     while ( "Offline" -ne $this_node.NodeState ) {
         $tries += 1
-        if($tries -gt '10'){
+        if($tries -gt '1'){
             throw "Timed out waiting for Offline state.  Node $env:COMPUTERNAME is still in state: $this_node.NodeState"
         }
         start-sleep -s 10
     }
-    $tries=0
-    while ( "OK" -ne $this_node.HealthState ) {
-        $tries += 1
-        if($tries -gt '10'){
-            throw "Timed out waiting for OK healthstate.  Node $env:COMPUTERNAME still shows health: $this_node.HealthState"
-        }
-        start-sleep -s 10
-    }
+    # $tries=0
+    # while ( "OK" -ne $this_node.HealthState ) {
+    #     $tries += 1
+    #     if($tries -gt '1'){
+    #         throw "Timed out waiting for OK healthstate.  Node $env:COMPUTERNAME still shows health: $this_node.HealthState"
+    #     }
+    #     start-sleep -s 10
+    # }
 
     echo "Node $env:COMPUTERNAME has reached state: $this_node.NodeState.   Adding delay for HPC Pack 2012 registration issue..."
     start-sleep -s 60

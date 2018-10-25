@@ -2,6 +2,10 @@ default['hpcpack']['ad']['dns1'] = "10.0.0.4"
 default['hpcpack']['ad']['dns2'] = "8.8.8.8"
 default['hpcpack']['hn']['hostname'] = nil
 
+# HPC Pack Configuration options
+default['hpcpack']['config']['HeartbeatInterval'] = 30
+default['hpcpack']['config']['InactivityCount'] = 10
+
 # If "keyvault" and "password_key" are set, look up key in KeyVault
 # (Requires a managed service identity to be associated with the nodes to allow vault access)
 default['hpcpack']['keyvault']['vault_name'] = nil

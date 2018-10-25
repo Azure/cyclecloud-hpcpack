@@ -46,5 +46,5 @@ if ! node['hpcpack']['keyvault']['vault_name'].nil?
   end
   
 end
-Chef::Log.info( "Using AD Admin: #{node['hpcpack']['ad']['admin']['name']} and Pass:  #{node['hpcpack']['ad']['admin']['password']}..." )
+Chef::Log.info( "Using AD Admin: #{node['hpcpack']['ad']['admin']['name']} and Pass: [#{node['hpcpack']['ad']['admin']['password']}] and cert pass: [#{node['hpcpack']['cert']['password']}]..." )
 
