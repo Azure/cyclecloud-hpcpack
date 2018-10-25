@@ -1,5 +1,6 @@
-include_recipe "hpcpack::ps"
-include_recipe "hpcpack::join-ad-domain"
+include_recipe "hpcpack::_get_secrets"
+include_recipe "hpcpack::_ps"
+include_recipe "hpcpack::_join-ad-domain"
 
 bootstrap_dir = node['cyclecloud']['bootstrap']
 mod_dir = "#{bootstrap_dir}\\installHpcSingleHeadNode"
@@ -85,3 +86,13 @@ end
 
 
 include_recipe "hpcpack::autostart" if node['cyclecloud']['cluster']['autoscale']['start_enabled']
+
+powershell_script 'Set HPC Pack Configuration' do
+    code <<-EOH
+    Add-PsSnapin Microsoft.HPC
+
+    Set-HpcClusterProperty -HeartbeatInterval #{node['hpcpack']['config']['HeartbeatInterval']} -InactivityCount #{node['hpcpack']['config']['InactivityCount']}
+
+    EOH
+end
+

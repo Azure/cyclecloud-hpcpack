@@ -1,7 +1,29 @@
-include_recipe "hpcpack::ps"
-
+include_recipe "hpcpack::_get_secrets"
+include_recipe "hpcpack::_ps"
 bootstrap_dir = node['cyclecloud']['bootstrap']
 modules_dir = "C:\\Program\ Files\\WindowsPowerShell\\Modules"
+
+reboot_required = false
+ruby_block "set_reboot_required" do
+  block do
+    reboot_required = true
+  end
+  action :nothing
+end
+
+
+
+# Ensure that the local User has the same password as the AD User
+user node['hpcpack']['ad']['admin']['name'] do
+  password node['hpcpack']['ad']['admin']['password']
+end
+
+# Ensure that the local User is a local Admin 
+group "Administrators" do
+  action :modify
+  members node['hpcpack']['ad']['admin']['name']
+  append true
+end
 
 mod_dir = "#{bootstrap_dir}\\joinAD"
 dsc_script = "JoinADDomain.ps1"
@@ -60,7 +82,43 @@ powershell_script 'set-dsc-JoinADDomain' do
     EOH
     cwd mod_dir
     not_if '(Get-WmiObject -Class Win32_ComputerSystem).PartOfDomain'
-    notifies :reboot_now, 'reboot[Restart Computer]', :immediately
+    notifies :run, 'ruby_block[set_reboot_required]', :immediately    
+    # notifies :reboot_now, 'reboot[Restart Computer]', :immediately
+end
+
+
+# Allow users to uninstall specific windows updates (some apps haven't been ported to latest sec. updates)
+# - Most updates require a reboot,
+#   and domain join may fail if we uninstall before the join, so uninstall after join
+#   but try hard to do all of this in one reboot
+if not node['hpcpack']['uninstall_updates'].nil?
+  
+  node['hpcpack']['uninstall_updates'].each do |kb|
+    kb_number = kb.downcase
+    kb_number.slice!('kb')
+    powershell_script "uninstall windows update: #{kb}" do
+      code <<-EOH
+      wusa.exe /uninstall /kb:#{kb_number} /norestart /quiet
+      EOH
+      only_if "dism.exe /online /get-packages | findstr /I #{kb}"
+      notifies :run, 'ruby_block[set_reboot_required]', :immediately    
+    end
+  end
+
+end
+
+# Notify the reboot resource after loop
+ruby_block "reboot_after_updates" do
+  block do
+    if not node['hpcpack']['uninstall_updates'].nil?
+      Chef::Log.warn("Rebooting after joining domain and uninstalling #{node['hpcpack']['uninstall_updates'].inspect}...")
+    else
+      Chef::Log.warn("Rebooting after joining domain...")
+    end
+  end
+  action :run
+  only_if { reboot_required == true }
+  notifies :reboot_now, 'reboot[Restart Computer]', :immediately
 end
 
 # To be safe - reset trust connection on each converge

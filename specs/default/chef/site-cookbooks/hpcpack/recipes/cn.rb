@@ -1,6 +1,7 @@
-include_recipe "hpcpack::ps"
-include_recipe "hpcpack::join-ad-domain"
-include_recipe "hpcpack::find-hn"
+include_recipe "hpcpack::_get_secrets"
+include_recipe "hpcpack::_ps"
+include_recipe "hpcpack::_join-ad-domain"
+include_recipe "hpcpack::_find-hn"
 
 bootstrap_dir = node['cyclecloud']['bootstrap']
 mod_dir = "#{bootstrap_dir}\\modHpcPack"
@@ -122,6 +123,7 @@ end
 
 # HPC Pack 2012 has a bug which requires nodes to be in the Offline state for several seconds before
 # they can be brought online (fixed in 2016).  So sleep for a bit...
+log "Waiting for HPC worker node to reach Offline state..." do level :info end
 powershell_script 'wait-for-offline-state' do
     code <<-EOH
     Add-PsSnapin Microsoft.HPC
@@ -131,18 +133,20 @@ powershell_script 'wait-for-offline-state' do
     echo "Waiting for HPC worker node to reach Offline state... Current state: $this_node.NodeState"
     $tries=0
     while ( "Offline" -ne $this_node.NodeState ) {
-        if($tries -gt '10'){
+        $tries += 1
+        if($tries -gt '1'){
             throw "Timed out waiting for Offline state.  Node $env:COMPUTERNAME is still in state: $this_node.NodeState"
         }
         start-sleep -s 10
     }
-    $tries=0
-    while ( "OK" -ne $this_node.HealthState ) {
-        if($tries -gt '10'){
-            throw "Timed out waiting for OK healthstate.  Node $env:COMPUTERNAME still shows health: $this_node.HealthState"
-        }
-        start-sleep -s 10
-    }
+    # $tries=0
+    # while ( "OK" -ne $this_node.HealthState ) {
+    #     $tries += 1
+    #     if($tries -gt '1'){
+    #         throw "Timed out waiting for OK healthstate.  Node $env:COMPUTERNAME still shows health: $this_node.HealthState"
+    #     }
+    #     start-sleep -s 10
+    # }
 
     echo "Node $env:COMPUTERNAME has reached state: $this_node.NodeState.   Adding delay for HPC Pack 2012 registration issue..."
     start-sleep -s 60
