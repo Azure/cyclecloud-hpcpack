@@ -14,7 +14,13 @@ module HPCPack
     end
 
     def self.keyvault_get_secret(vault_name, secret_key)
-      keyvault_get_secret_py = "#{Chef::Config[:cookbook_path][0]}/../cookbooks/hpcpack/files/keyvault_get_secret.py"
+      # Cookbook path is sometimes a single string
+      if Chef::Config[:cookbook_path].respond_to?('each')
+        cookbook_path = Chef::Config[:cookbook_path][0]
+      else
+        cookbook_path = Chef::Config[:cookbook_path]
+      end
+      keyvault_get_secret_py = "#{cookbook_path}/../cookbooks/hpcpack/files/keyvault_get_secret.py"
       get_secret = Mixlib::ShellOut.new("python #{keyvault_get_secret_py} #{vault_name} #{secret_key}")
       get_secret.run_command
 

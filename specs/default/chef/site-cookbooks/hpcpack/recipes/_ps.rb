@@ -11,16 +11,20 @@ reboot 'Restart Computer' do
     action :nothing
 end
 
-# KB3134758 should be superceded by WMF 5.1 which is pre-installed
-# jetpack_download "Win8.1AndW2K12R2-KB3134758-x64.msu" do
-#   project "hpcpack"
-#   not_if { ::File.exists?("#{node['jetpack']['downloads']}/Win8.1AndW2K12R2-KB3134758-x64.msu") }
-# end
 
-# msu_package 'Install WMF Update KB3134758' do
-#   source "#{node['jetpack']['downloads']}/Win8.1AndW2K12R2-KB3134758-x64.msu"
-#   action :install
-# end
+# KB3134758 should be superceded by WMF 5.1 which is pre-installed on HPC images
+# But other images my require this
+jetpack_download "Win8.1AndW2K12R2-KB3134758-x64.msu" do
+  project "hpcpack"
+  not_if { ::File.exists?("#{node['jetpack']['downloads']}/Win8.1AndW2K12R2-KB3134758-x64.msu") }
+  not_if "dism.exe /online /get-packages | findstr /I KB3134758"
+end
+
+msu_package 'Install WMF Update KB3134758' do
+  source "#{node['jetpack']['downloads']}/Win8.1AndW2K12R2-KB3134758-x64.msu"
+  action :install
+  not_if "dism.exe /online /get-packages | findstr /I KB3134758"
+end
 
 powershell_script "Install NuGet" do
     code "Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force"

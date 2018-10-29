@@ -11,12 +11,11 @@ ruby_block "set_reboot_required" do
   action :nothing
 end
 
-
-
-# Ensure that the local User has the same password as the AD User
+# Ensure that the local User has the same password as the AD User 
 user node['hpcpack']['ad']['admin']['name'] do
   password node['hpcpack']['ad']['admin']['password']
 end
+
 
 # Ensure that the local User is a local Admin 
 group "Administrators" do
@@ -24,6 +23,7 @@ group "Administrators" do
   members node['hpcpack']['ad']['admin']['name']
   append true
 end
+
 
 mod_dir = "#{bootstrap_dir}\\joinAD"
 dsc_script = "JoinADDomain.ps1"

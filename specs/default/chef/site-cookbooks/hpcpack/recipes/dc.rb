@@ -11,6 +11,30 @@ cookbook_file "#{bootstrap_dir}\\#{dsc_script}.zip" do
    action :create
 end
 
+
+# IMPORTANT: Once we're a DC, local users may not be modified, so guard!
+
+# Ensure that the local User has the same password as the AD User
+user node['hpcpack']['ad']['admin']['name'] do
+  password node['hpcpack']['ad']['admin']['password']
+  guard_interpreter :powershell_script
+  not_if '(Get-WmiObject -Class Win32_ComputerSystem).PartOfDomain'
+end
+
+
+# Ensure that the local User is a local Admin
+# IMPORTANT: Once we're a DC, local groups may not be modified, so guard!
+group "Administrators" do
+  action :modify
+  members node['hpcpack']['ad']['admin']['name']
+  append true
+  guard_interpreter :powershell_script
+  not_if '(Get-WmiObject -Class Win32_ComputerSystem).PartOfDomain'
+end
+
+
+
+
 directory "#{mod_dir}" do
 end
 
@@ -46,4 +70,4 @@ powershell_script 'set-dsc-CreateADPDC' do
     cwd mod_dir
     not_if "'#{node['hpcpack']['ad']['domain']}' -eq $(Get-ADDomain | WHERE DNSRoot -Like '#{node['hpcpack']['ad']['domain']}').DNSRoot"
     notifies :reboot_now, 'reboot[Restart Computer]', :immediately
-  end
+end
