@@ -39,9 +39,7 @@ Autoscale = $Autoscale
    Azure.OS = windows
 
    InstallJetpack = true
-   JetpackVersion = 7.1.0
    JetpackPlatform = windows
-   AwaitInstallation = true
 
    Username = $Username
    Password = $Password
