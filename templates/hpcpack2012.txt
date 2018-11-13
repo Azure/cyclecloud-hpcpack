@@ -4,6 +4,7 @@
 
 [cluster hpcpack]
 FormLayout = selectionpanel
+Category = Schedulers
 IconUrl = http://download.cyclecomputing.com/logos/microsoft-192x192.png
 Autoscale = $Autoscale
 

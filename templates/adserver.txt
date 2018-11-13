@@ -18,6 +18,7 @@ ParameterValues.apiVersion = "2016-12-01"
 
 [cluster adserver]
 FormLayout = selectionpanel
+Category = Infrastructure
 IconUrl = http://download.cyclecomputing.com/logos/microsoft-192x192.png
 
 
