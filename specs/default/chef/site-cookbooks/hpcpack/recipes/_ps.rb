@@ -15,7 +15,7 @@ end
 # TEMPORARY: Schedule a converge on boot explicitly (this should be in base coookbooks soon)
 # This is required to bring the node back online after restart
 taskrun = "#{node[:cyclecloud][:home]}\\bin\\jetpack converge"
-powershell_script "Add on-boot re-converge"
+powershell_script "Add on-boot re-converge" do
   code "schtasks /Create /TN chef_onboot /SC ONSTART /F /RU 'System' /TR '#{taskrun}'"
   ignore_failure true
 end
