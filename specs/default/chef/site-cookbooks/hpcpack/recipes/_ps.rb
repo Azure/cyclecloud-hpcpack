@@ -12,6 +12,16 @@ reboot 'Restart Computer' do
 end
 
 
+# TEMPORARY: Schedule a converge on boot explicitly (this should be in base coookbooks soon)
+# This is required to bring the node back online after restart
+taskrun = "#{node[:cyclecloud][:home]}\\bin\\jetpack converge"
+powershell_script "Add on-boot re-converge"
+  code "schtasks /Create /TN chef_onboot /SC ONSTART /F /RU 'System' /TR '#{taskrun}'"
+  ignore_failure true
+end
+Chef::Log.info('Modified scheduled task for on-boot converges.')
+
+
 # KB3134758 should be superceded by WMF 5.1 which is pre-installed on HPC images
 # But other images my require this
 jetpack_download "Win8.1AndW2K12R2-KB3134758-x64.msu" do

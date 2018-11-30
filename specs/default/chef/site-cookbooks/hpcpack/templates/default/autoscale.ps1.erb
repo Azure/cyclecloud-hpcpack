@@ -2,6 +2,7 @@ param(
     [switch] $initialize, 
     [switch] $reap
     )
+    
 
 # Verbose by default
 $PSDefaultParameterValues['New-Item:Verbose'] = $true
@@ -20,10 +21,14 @@ $add_node_threshold = New-Timespan -Hours <%= @threshold_hr %> -Minutes <%= @thr
 
 $min_node_count = <%= @min_node_count %>
 
-# HACK: Until we have autoscale-by-node, estimate min_node_count
-$estimated_cores_per_node = <%= @estimated_cores_per_node %>
-$min_core_count = $min_node_count * $estimated_cores_per_node
+$autostopDeallocate = $true
+if ("<%= @node[:hpcpack][:autoscale][:deallocate] %>" -eq "false") {
+    $autostopDeallocate = $false
+}
 
+$start_url = "<%= @node[:cyclecloud][:config][:web_server] %>/cloud/actions/start_node/<%= @node[:cyclecloud][:cluster][:name] %>"
+$stop_url = "<%= @node[:cyclecloud][:config][:web_server] %>/cloud/actions/deallocate_node/<%= @node[:cyclecloud][:cluster][:name] %>"
+$list_nodes_url = "<%= @node[:cyclecloud][:config][:web_server] %>/cloud/api/nodes"
 $autoscale_url = "<%= @node[:cyclecloud][:cluster][:autoscale][:stop_callback] %>"
 $autoscale_user = "<%= @node[:cyclecloud][:config][:username] %>"
 $autoscale_pw = "<%= @node[:cyclecloud][:config][:password] %>"
@@ -91,7 +96,7 @@ function initializeDb() {
 function updateNewNodes() {
     $nodes = Get-HpcNode | Where-Object {!($_.IsHeadNode)}
     $db_hpcnodes = Invoke-sqlcmd -ServerInstance $sql_serv -Database $sql_db `
-                        -Query "SELECT NodeName FROM $sql_tbl"
+        -Query "SELECT NodeName FROM $sql_tbl"
 
     $new_nodes = $nodes | ?{$db_hpcnodes.nodename -notcontains $_.NetBiosName}
     $updated_nodes = $nodes | ?{$db_hpcnodes.nodename -contains $_.NetBiosName -and ($db_hpcnodes.nodestate -ne $_.NodeState -or $db_hpcnodes.healthstate -ne $_.HealthState -or $db_hpcnodes.nodehealth -ne $_.NodeHealth -or $db_hpcnodes.template -ne $_.Template)}
@@ -199,6 +204,17 @@ function markUnhealthy() {
     WHERE (NodeState = 'Online') AND (NodeHealth = 'Unreachable');
     "
 
+    #echo $updatequery
+    Invoke-SQLcmd -ServerInstance $sql_serv -query $updatequery -Database $sql_db
+}
+
+function markIdleForcibly($nodename) {
+    Write-Host "WARNING: Forcibly retiring node : $nodename"
+    $updatequery = "
+    UPDATE NodeState
+    SET DesignatedToRemove = 1
+    WHERE NodeName = '$nodename';
+    "
     #echo $updatequery
     Invoke-SQLcmd -ServerInstance $sql_serv -query $updatequery -Database $sql_db
 }
@@ -493,13 +509,22 @@ function terminateNode($nodeName){
     -Query "SELECT InstanceId FROM $sql_tbl WHERE NodeName = '$nodeName';"
     
     $Time=Get-Date
-    Write-Verbose "$time Terminating instance node $nodeName :  $removeId.InstanceId"
     try {
-        terminateInstance( $removeId.InstanceId) 
+        if ($autostopDeallocate -eq $true) {
+            Write-Verbose "$time Deallocating instance node $nodeName :  $removeId.InstanceId"
+            stopDeallocateInstance( $removeId.InstanceId) 
+        } else {
+            Write-Verbose "$time Terminating instance node $nodeName :  $removeId.InstanceId"
+            terminateInstance( $removeId.InstanceId) 
+        }
     } catch { 
-        echo "Failed to remove node $nodeName"
-        echo  $_.Exception.Message
-        break
+        Write-Host "Failed to remove node $nodeName"
+        Write-Host  $_.Exception.Message
+        if ( $_.Exception.Response.StatusCode.value__ -eq 409 ) {
+           Write-Host "409 indicates that Cloud.Node did not match instance ID: $($removeId.InstanceId).   Removing HPC Pack node."
+        } else {
+           return
+        }
     }
     
 
@@ -511,23 +536,113 @@ function terminateNode($nodeName){
     -Query "DELETE FROM $sql_tbl WHERE NodeName = '$nodeName';"
 }
 
+
+function listActiveInstances($attributes=@("InstanceID", "CoreCount"), $array_name='execute') {
+    return listInstances '!(TargetState in { "Deallocated", "Stopped", "Off", "Terminated" })' $attributes $array_name
+}
+
+function listDeallocatedInstances($attributes=@("InstanceID", "CoreCount"), $array_name='execute') {
+    return listInstances 'State=="Deallocated"' $attributes $array_name
+}
+
+function listInstances($filter, $attributes=@("InstanceID", "CoreCount"), $array_name='execute') {
+    # List the Instance IDs of matching nodes
+    if ([string]::IsNullOrWhiteSpace($filter)) {
+        $filter = [uri]::EscapeDataString('InstanceId isnt undefined && Template == ' + $array_name + '"')    
+    } else {
+        $filter = [uri]::EscapeDataString('InstanceId isnt undefined && Template == "' + $array_name + '" && ' + $filter)
+    }
+
+    $attribute_format = ""
+    foreach ($attr in $attributes) {
+      if ([string]::IsNullOrWhiteSpace($attribute_format)) {
+          $attribute_format += "%(" + $attr + ")s"
+      } else {
+          $attribute_format += ", %(" + $attr + ")s"
+      }            
+    }
+    $attribute_format = '"' + $attribute_format + '"'
+    $attribute_format = [uri]::EscapeDataString($attribute_format)
+    $cc_url = $list_nodes_url + "?cluster=<%= @node[:cyclecloud][:cluster][:name] %>&output=" + $attribute_format + "&filter=" + $filter
+    $base64AuthInfo = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(("{0}:{1}" -f $autoscale_user,$autoscale_pw)))
+    $response = Invoke-RestMethod -Uri $cc_url -Headers @{Authorization=("Basic {0}" -f $base64AuthInfo)} -Method 'Get'
+    $instances = $response | Foreach-Object {$_ -replace '"', ""}
+    $instances = $instances -split "`r`n|`r|`n"
+    return $instances
+}
+
+
 function terminateInstance($instanceID) {
     $cc_url = $autoscale_url + "?instance=" + $instanceID
     $base64AuthInfo = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(("{0}:{1}" -f $autoscale_user,$autoscale_pw)))
     $response = Invoke-RestMethod -Uri $cc_url -Headers @{Authorization=("Basic {0}" -f $base64AuthInfo)} -Method 'Get'
 }
 
+function stopDeallocateInstance($instanceID) {
+    $filter = [uri]::EscapeDataString('InstanceId=="' + $instanceID + '"')
+    $cc_url = $stop_url + "?wait_time=30&filter=" + $filter
+    $base64AuthInfo = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(("{0}:{1}" -f $autoscale_user,$autoscale_pw)))
+    $headers = @{
+        'Authorization'=("Basic {0}" -f $base64AuthInfo)
+        'Content-Type'="text/plain"
+    }
+    $response = Invoke-RestMethod -Uri $cc_url -Headers $headers -Method 'Post'
+}
+
+function restartInstance($cc_node_name) {
+    $cc_url = $start_url + "?wait_time=30&node_name=" + $cc_node_name
+    $base64AuthInfo = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(("{0}:{1}" -f $autoscale_user,$autoscale_pw)))
+    $headers = @{
+        'Authorization'=("Basic {0}" -f $base64AuthInfo)
+        'Content-Type'="text/plain"
+    }
+    $response = Invoke-RestMethod -Uri $cc_url -Headers $headers -Method 'Post'
+}
+
+function activeCoreCount() {
+    $count = 0
+    $(listActiveInstances "CoreCount") -split "`n" |   ForEach-Object { $count += [int] $_ } 
+    return $count
+}
+
+function autorestartDeallocated($demand) {
+    if ($demand -le 0) {
+        return
+    }
+
+    $instances = listDeallocatedInstances @("InstanceID", "Name", "CoreCount")
+    $core_counts = $insts | ForEach-Object { $_.split(',')[1] -replace '\s', ''}
+
+    foreach ($inst in $instances) {
+        $attrs = $inst.Split(',')
+        $instance_id = $attrs[0] -replace '\s', ''
+        $node_name = $attrs[1] -replace '\s', ''
+        $core_count = $attrs[2] -replace '\s', ''
+
+        Write-Verbose("Auto-Restarting instance $instance_id")
+        restartInstance($node_name)
+        $demand -= $core_count
+        if ($demand -le 0) {
+            return
+        }
+    }
+}
 
 function autostart() {
 
     # TODO: get NodeGroup and convert to slot_type
     $demand=targetCoreCount
     echo "Autostarting $demand cores of type : execute"
-
     
-    $demand = [math]::max( $demand , $min_core_count )
+    # First, auto-restart stopped instances up to demand
+    autorestartDeallocated($demand)
 
+    # Next, set TargetCount to autostart any additional capacity
     jetpack autoscale -n execute -c $demand
+    if ($demand -le 0) {
+        # Ensure min node count even if no demand
+        jetpack autoscale -n execute -i $min_node_count
+    }
 }
 
 function dbPop($nodeName) {

@@ -19,6 +19,9 @@ default['hpcpack']['ad']['admin']['password'] = nil
 # HPC Pack SOA jobs tend to fail if there are 0 cores when submitted
 default['hpcpack']['min_node_count'] = 1
 
+# Enable auto-stop to de-allocated rather than terminated
+default['hpcpack']['autoscale']['deallocate'] = true
+
 default['hpcpack']['job']['default_runtime']['hr'] = 1
 default['hpcpack']['job']['default_runtime']['min'] = 0
 default['hpcpack']['job']['default_runtime']['sec'] = 0

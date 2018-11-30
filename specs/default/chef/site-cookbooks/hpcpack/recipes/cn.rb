@@ -139,22 +139,14 @@ powershell_script 'wait-for-offline-state' do
         }
         start-sleep -s 10
     }
-    # $tries=0
-    # while ( "OK" -ne $this_node.HealthState ) {
-    #     $tries += 1
-    #     if($tries -gt '1'){
-    #         throw "Timed out waiting for OK healthstate.  Node $env:COMPUTERNAME still shows health: $this_node.HealthState"
-    #     }
-    #     start-sleep -s 10
-    # }
 
     echo "Node $env:COMPUTERNAME has reached state: $this_node.NodeState.   Adding delay for HPC Pack 2012 registration issue..."
-    start-sleep -s 60
+    start-sleep -s 10
     EOH
     domain node['hpcpack']['ad']['domain']
     user node['hpcpack']['ad']['admin']['name']
     password node['hpcpack']['ad']['admin']['password']
-    retries 3
+    retries 10
     retry_delay 5
     only_if "Add-PsSnapin Microsoft.HPC; 'Online' -ne (Get-HpcNode -Name (hostname) -Scheduler #{node['hpcpack']['hn']['hostname']}).NodeState  -and (Get-Command Get-HpcNode).Version.Major -lt 5"
 end
