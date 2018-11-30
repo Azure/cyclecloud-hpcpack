@@ -17,6 +17,7 @@ Autoscale = $Autoscale
     Azure.Identities = $ManagedServiceIdentity
 
       [[[configuration]]]
+      cyclecloud.maintenance_converge.enabled = true
       cyclecloud.hosts.standalone_dns.enabled = false
       cyclecloud.cluster.autoscale.idle_time_after_jobs = 900
       cyclecloud.cluster.autoscale.idle_time_before_jobs = 3600
