@@ -370,7 +370,7 @@ function targetSOACoreCount($jobs) {
             $job_core_request = $job_core_request * $estimated_cores_per_node
         }
         
-        Write-Verbose "SOA Job $job.id (exclusive: $job.Exclusive) has $outstanding_calls requires $job_core_request"
+        Write-Verbose "SOA Job $($job.id) (exclusive: $($job.Exclusive)) has $outstanding_calls requires $job_core_request"
 
         $total_core_request = $total_core_request + $job_core_request
     }
@@ -434,7 +434,7 @@ function targetBatchCoreCount($jobs) {
         }
         $total_cpu_time = $total_cpu_time.Add($remain_job_run_time)
     }
-    Write-Verbose "total_cpu_time / add_node_threshold = $total_cpu_time.Ticks / $add_node_threshold.Ticks"
+    Write-Verbose "total_cpu_time / add_node_threshold = $($total_cpu_time.Ticks) / $($add_node_threshold.Ticks)"
     Write-Verbose "$total_cpu_time"
     $target_cpus = [math]::floor($total_cpu_time.Ticks / $add_node_threshold.Ticks)
     return [math]::min( $target_cpus , $total_core_request )
@@ -514,10 +514,10 @@ function terminateNode($nodeName){
     $Time=Get-Date
     try {
         if ($autostopDeallocate -eq $true) {
-            Write-Verbose "$time Deallocating instance node $nodeName :  $removeId.InstanceId"
+            Write-Verbose "$time Deallocating instance node $nodeName :  $($removeId.InstanceId)"
             stopDeallocateInstance( $removeId.InstanceId) 
         } else {
-            Write-Verbose "$time Terminating instance node $nodeName :  $removeId.InstanceId"
+            Write-Verbose "$time Terminating instance node $nodeName :  $($removeId.InstanceId)"
             terminateInstance( $removeId.InstanceId) 
         }
     } catch { 
@@ -617,7 +617,7 @@ function autorestartDeallocated($demand) {
     $core_counts = $insts | ForEach-Object { $_.split(',')[1] -replace '\s', ''}
 
     foreach ($inst in $instances) {
-        if ($inst -eq $null) {
+        if (-not $inst) {
             Write-Host("WARNING: list deallocated returned NULL instance")
             continue
         }
