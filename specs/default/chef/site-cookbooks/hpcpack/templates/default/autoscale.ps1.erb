@@ -26,6 +26,9 @@ if ("<%= @node[:hpcpack][:autoscale][:deallocate] %>" -eq "false") {
     $autostopDeallocate = $false
 }
 
+# TODO: Remove and autoscale by node as well as core
+$estimated_cores_per_node = 8
+
 $start_url = "<%= @node[:cyclecloud][:config][:web_server] %>/cloud/actions/start_node/<%= @node[:cyclecloud][:cluster][:name] %>"
 $stop_url = "<%= @node[:cyclecloud][:config][:web_server] %>/cloud/actions/deallocate_node/<%= @node[:cyclecloud][:cluster][:name] %>"
 $list_nodes_url = "<%= @node[:cyclecloud][:config][:web_server] %>/cloud/api/nodes"
@@ -614,11 +617,20 @@ function autorestartDeallocated($demand) {
     $core_counts = $insts | ForEach-Object { $_.split(',')[1] -replace '\s', ''}
 
     foreach ($inst in $instances) {
+        if ($inst -eq $null) {
+            Write-Host("WARNING: list deallocated returned NULL instance")
+            continue
+        }
+
         $attrs = $inst.Split(',')
         $instance_id = $attrs[0] -replace '\s', ''
         $node_name = $attrs[1] -replace '\s', ''
         $core_count = $attrs[2] -replace '\s', ''
 
+        if ([string]::IsNullOrWhiteSpace($instance_id) -orstring]::IsNullOrWhiteSpace($node_name)) {
+            Write-Host("WARNING: list deallocated returned invalid instance: $inst")
+            continue
+        }
         Write-Verbose("Auto-Restarting instance $instance_id")
         restartInstance($node_name)
         $demand -= $core_count
