@@ -203,7 +203,7 @@ function markUnhealthy() {
     # Quickly remove Error state nodes
     $updatequery = "
     UPDATE NodeState
-    SET DesignatedToRemove = 1
+    SET DesignatedToRemove = 1, Persistent = 0
     WHERE (NodeState = 'Online') AND (NodeHealth = 'Unreachable');
     "
 
@@ -215,8 +215,19 @@ function markIdleForcibly($nodename) {
     Write-Host "WARNING: Forcibly retiring node : $nodename"
     $updatequery = "
     UPDATE NodeState
-    SET DesignatedToRemove = 1
+    SET DesignatedToRemove = 1, Persistent = 0
     WHERE NodeName = '$nodename';
+    "
+    #echo $updatequery
+    Invoke-SQLcmd -ServerInstance $sql_serv -query $updatequery -Database $sql_db
+}
+
+function markIdleUnused() {
+    Write-Host "WARNING: Forcibly retiring unused nodes"
+    $updatequery = "
+    UPDATE NodeState
+    SET DesignatedToRemove = 1, Persistent = 0
+    WHERE EverActive = 0;
     "
     #echo $updatequery
     Invoke-SQLcmd -ServerInstance $sql_serv -query $updatequery -Database $sql_db
@@ -360,6 +371,7 @@ function targetSOACoreCount($jobs) {
         }
         $outstanding_calls = $job.OutstandingCalls
         if ($outstanding_calls -eq 0) {
+            # Batch Job
             continue
         }  
         $mincores = $job.MinCores
@@ -386,12 +398,20 @@ function targetBatchCoreCount($jobs) {
         if (($job.State -ne "Running") -and ($job.State -ne "Queued")) {
             continue
         }
+
+        $outstanding_calls = $job.OutstandingCalls
+        if ($outstanding_calls -ne 0) {
+            # SOA Job
+            continue
+        }  
+
         
         $mincores = $job.MinCores
-        $ntasks = $job.NumberOfTasks
+#        $ntasks = $job.NumberOfTasks
+        $ntasks = $job.ConfiguringTasksCount + $job.QueuedTasksCount + $job.RunningTasksCount 
         $total_core_request = $total_core_request + ($mincores * $ntasks)
         $runtime = $default_job_timespan
-        if ($job.RunTime -ne $null) {
+        if ($job.RunTime) {
             $runtime = $job.RunTime            
         }
         $remain_run_time = $runtime.Subtract($job.ElapsedTime)
@@ -486,7 +506,7 @@ function berserker() {
 
         }
         else {
-            $state | format-list *
+            Write-Verbose $($state | select NetBiosName, NodeState, NodeHealth, HealthState)
         }
 
         $online_cores = currentOnlineComputeCapacity
@@ -494,13 +514,13 @@ function berserker() {
         if ($online_cores -ge $demand + $remove_node.ProcessorCores) {
             if ($state.NodeState -eq "Online") {
                 Write-Verbose "Set node offline $($remove_node.NodeName) [cores: $($state.ProcessorCores), online cores: $online_cores, min cores: $min_core_count]"
-                Set-HpcNodeState -Name $remove_node.NodeName -State "offline"
+                Set-HpcNodeState -Name $remove_node.NodeName -State "offline" -Async
                 continue
             }
         }
 
-        if ($state.NodeState -in "Offline", "Unknown" ) {
-            Write-Verbose "Terminating offline node: $($remove_node.NodeName) [cores: $($state.ProcessorCores), online cores: $online_cores, min cores: $min_core_count]"
+        if ($state.NodeState -in "Offline", "Unknown", "Provisioning" ) {
+            Write-Verbose "Terminating node: $($remove_node.NodeName) in state: $($state.NodeState) [cores: $($state.ProcessorCores), online cores: $online_cores, min cores: $min_core_count]"
             terminateNode($remove_node.NodeName)
         }
     }
@@ -608,13 +628,15 @@ function activeCoreCount() {
     return $count
 }
 
-function autorestartDeallocated($demand) {
+function autorestartDeallocated($demand) {    # Demand param is total target core count
+    # Demand param is total target core count
+    $active_cores = activeCoreCount
+    $demand = $demand - $active_cores
     if ($demand -le 0) {
         return
     }
 
     $instances = listDeallocatedInstances @("InstanceID", "Name", "CoreCount")
-    $core_counts = $insts | ForEach-Object { $_.split(',')[1] -replace '\s', ''}
 
     foreach ($inst in $instances) {
         if (-not $inst) {
@@ -627,7 +649,7 @@ function autorestartDeallocated($demand) {
         $node_name = $attrs[1] -replace '\s', ''
         $core_count = $attrs[2] -replace '\s', ''
 
-        if ([string]::IsNullOrWhiteSpace($instance_id) -orstring]::IsNullOrWhiteSpace($node_name)) {
+        if ([string]::IsNullOrWhiteSpace($instance_id) -or [string]::IsNullOrWhiteSpace($node_name)) {
             Write-Host("WARNING: list deallocated returned invalid instance: $inst")
             continue
         }
@@ -679,6 +701,14 @@ function showDBNode($nodename) {
     WHERE NodeName = '$nodename';"
 }
 
+function showMarked($nodename) {
+    Invoke-Sqlcmd -ServerInstance $sql_serv -Database $sql_db -query "
+    SELECT *
+    FROM [NodeState]
+    WHERE DesignatedToRemove = 'True';"
+}
+
+
 function cleanDB() {
     # Clear out nodes that are in DB but no longer online
     $nodes = Get-HpcNode | Where-Object {!($_.IsHeadNode)}
@@ -719,12 +749,21 @@ if ($initialize) {
     return
 }
 
+Write-Host("Updating new nodes")
 updateNewNodes
+Write-Host("Cleaning DB")
 cleanDB
+Write-Host("Assigning node templates")
 assignNodeTemplateToNewNodes
+Write-Host("Checking for autostart")
 autostart
+Write-Host("Updating existing nodes")
 updateNodes
 
 if ($reap) {
+    Write-Host("Berserker!!!")
     berserker
 }
+Write-Host("Autoscale complete!")
+Get-Date -Format g
+
