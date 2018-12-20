@@ -78,7 +78,7 @@ powershell_script 'HPCPack2012-PrepareHN' do
     # Could use node['fqdn'], but might not work with multiple interfaces?
     $fqdn = '#{node['hostname']}.#{node['hpcpack']['ad']['domain']}'
     $base64Password = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes('#{node['hpcpack']['ad']['admin']['password']}'))
-    powershell.exe -ExecutionPolicy Unrestricted -File "#{hpcpack2012_dir}\\PrepareHN.ps1" -DomainFQDN $fqdn -PublicDnsName $fqdn -AdminUserName cyclecloud -AdminBase64Password "$base64Password" > "#{hpcpack2012_dir}\\PrepareHN.log"
+    powershell.exe -ExecutionPolicy Unrestricted -File "#{hpcpack2012_dir}\\PrepareHN.ps1" -DomainFQDN $fqdn -PublicDnsName $fqdn -AdminUserName "#{node['hpcpack']['ad']['admin']['name']}" -AdminBase64Password "$base64Password" > "#{hpcpack2012_dir}\\PrepareHN.log"
     EOH
     cwd hpcpack2012_dir
     only_if 'Add-PsSnapin Microsoft.HPC; (Get-Command Get-HpcNode).Version.Major -lt 5'
