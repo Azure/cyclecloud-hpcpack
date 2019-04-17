@@ -29,8 +29,8 @@ if ("<%= @node[:hpcpack][:autoscale][:deallocate] %>" -eq "false") {
 # TODO: Remove and autoscale by node as well as core
 $estimated_cores_per_node = 8
 
-$start_url = "<%= @node[:cyclecloud][:config][:web_server] %>/cloud/actions/start_node/<%= @node[:cyclecloud][:cluster][:name] %>"
-$stop_url = "<%= @node[:cyclecloud][:config][:web_server] %>/cloud/actions/deallocate_node/<%= @node[:cyclecloud][:cluster][:name] %>"
+$start_url = "<%= @node[:cyclecloud][:config][:web_server] %>/clusters/<%= @node[:cyclecloud][:cluster][:name] %>/nodes/start"
+$stop_url = "<%= @node[:cyclecloud][:config][:web_server] %>/clusters/<%= @node[:cyclecloud][:cluster][:name] %>/nodes/deallocate"
 $list_nodes_url = "<%= @node[:cyclecloud][:config][:web_server] %>/cloud/api/nodes"
 $autoscale_url = "<%= @node[:cyclecloud][:cluster][:autoscale][:stop_callback] %>"
 $autoscale_user = "<%= @node[:cyclecloud][:config][:username] %>"
@@ -625,24 +625,31 @@ function terminateInstance($instanceID) {
 }
 
 function stopDeallocateInstance($instanceID) {
-    $filter = [uri]::EscapeDataString('InstanceId=="' + $instanceID + '"')
-    $cc_url = $stop_url + "?wait_time=30&filter=" + $filter
+    $cc_url = $stop_url + "?wait_time=30"
     $base64AuthInfo = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(("{0}:{1}" -f $autoscale_user,$autoscale_pw)))
     $headers = @{
         'Authorization'=("Basic {0}" -f $base64AuthInfo)
-        'Content-Type'="text/plain"
+        'Content-Type'="application/json"
     }
-    $response = Invoke-RestMethod -Uri $cc_url -Headers $headers -Method 'Post'
+    $post_body = @{
+        'filter'='InstanceId=="' + $instanceID + '"'
+    }
+    $json_body = $post_body | ConvertTo-Json
+    $response = Invoke-RestMethod -Uri $cc_url -Headers $headers -Method 'Post' -Body $json_body
 }
 
 function restartInstance($cc_node_name) {
-    $cc_url = $start_url + "?wait_time=30&node_name=" + $cc_node_name
+    $cc_url = $start_url + "?wait_time=30"
     $base64AuthInfo = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(("{0}:{1}" -f $autoscale_user,$autoscale_pw)))
     $headers = @{
         'Authorization'=("Basic {0}" -f $base64AuthInfo)
-        'Content-Type'="text/plain"
+        'Content-Type'="application/json"
     }
-    $response = Invoke-RestMethod -Uri $cc_url -Headers $headers -Method 'Post'
+    $post_body = @{
+        'names'= @( '"' + $cc_node_name + '"' )
+    }
+    $json_body = $post_body | ConvertTo-Json
+    $response = Invoke-RestMethod -Uri $cc_url -Headers $headers -Method 'Post' -Body $json_body
 }
 
 function activeCoreCount() {
