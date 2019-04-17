@@ -297,6 +297,7 @@ Order = 30
         Description = The machine type for the default Execute nodes
         ParameterType = Cloud.MachineType
         DefaultValue = Standard_DS3_v2
+        Config.MultiSelect = true
 
     [[parameters Auto-Scaling]]
     Description = "The cluster can autoscale to the workload, adding execute hosts as jobs are queued. To enable this check the box below and choose the initial and maximum core counts for the cluster"

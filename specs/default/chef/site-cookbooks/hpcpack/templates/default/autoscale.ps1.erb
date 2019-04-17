@@ -322,27 +322,50 @@ function assignNodeTemplateToNewNodes() {
     $unapproved_nodes = Invoke-sqlcmd -ServerInstance $sql_serv -Database $sql_db `
         -Query "SELECT NodeName FROM $sql_tbl WHERE NodeHealth = 'OK' and HealthState = 'Unapproved';"
 
-    $num_parallel = 0
-    $MAX_PARALLEL = '10'
-    foreach($node in $unapproved_nodes) {
-        # Assign template is slow, so run multiple in parallel
-        Write-Verbose "Assigning template $templateName to node $($node.NodeName)"
-        $assignTemplateBlock = {
-            param($node)
-            $templateName = "Default ComputeNode Template"
-            Add-PsSnapin Microsoft.HPC 
-            Assign-HpcNodeTemplate -NodeName $node.NodeName -Name $templateName -Confirm:$false
-        }
+    # $num_parallel = 0
+    # $MAX_PARALLEL = '10'
+    # foreach($node in $unapproved_nodes) {
+    #     # Assign template is slow, so run multiple in parallel
+    #     Write-Verbose "Assigning template $templateName to node $($node.NodeName)"
+    #     $assignTemplateBlock = {
+    #         param($node)
+    #         $templateName = "Default ComputeNode Template"
+    #         Add-PsSnapin Microsoft.HPC 
+    #         Assign-HpcNodeTemplate -NodeName $node.NodeName -Name $templateName -Confirm:$false
+    #     }
 
-        Start-Job $assignTemplateBlock -ArgumentList $node, $templateName
+    #     Start-Job $assignTemplateBlock -ArgumentList $node, $templateName
 
-        # Batch the requests to avoid overloading the manager
-        $num_parallel += 1
-        if($num_parallel -gt $MAX_PARALLEL){
-            Get-Job | Wait-Job | Receive-Job
-            $num_parallel = 0
+    #     # Batch the requests to avoid overloading the manager
+    #     $num_parallel += 1
+    #     if($num_parallel -gt $MAX_PARALLEL){
+    #         Get-Job | Wait-Job | Receive-Job
+    #         $num_parallel = 0
+    #     }
+    # }
+
+    if($null -eq $unapproved_nodes)
+    {
+        return
+    }
+    $maxNodesInOneChange = 40
+    $unapproved_nodenames = @($unapproved_nodes.NodeName)
+    $nbrnodes_toassign = $unapproved_nodenames.Count
+    while($nbrnodes_toassign -gt 0)
+    {
+        Start-Job -ScriptBlock {
+            param($templateName, $nodenames)
+            Add-PsSnapin Microsoft.HPC
+            Assign-HpcNodeTemplate -NodeName $nodenames -Name $templateName -Confirm:$false
+        } -ArgumentList @("Default ComputeNode Template", @($unapproved_nodenames | select -First $maxNodesInOneChange))
+ 
+        $nbrnodes_toassign -= $maxNodesInOneChange
+        if($nbrnodes_toassign -gt 0)
+        {
+            $unapproved_nodenames = @($unapproved_nodenames | select -Last $nbrnodes_toassign)
         }
     }
+     
 
     # Wait for completion and get output
     Get-Job | Wait-Job | Receive-Job
@@ -543,8 +566,8 @@ function terminateNode($nodeName){
     } catch { 
         Write-Host "Failed to remove node $nodeName"
         Write-Host  $_.Exception.Message
-        if ( $_.Exception.Response.StatusCode.value__ -eq 409 ) {
-           Write-Host "409 indicates that Cloud.Node did not match instance ID: $($removeId.InstanceId).   Removing HPC Pack node."
+        if ( $_.Exception.Response.StatusCode.value__ -eq 409 -or $_.Exception.Response.StatusCode.value__ -eq 404 ) {
+           Write-Host "409 or 404 indicates that Cloud.Node did not match instance ID: $($removeId.InstanceId).   Removing HPC Pack node."
         } else {
            return
         }
@@ -668,15 +691,40 @@ function autostart() {
     $demand=targetCoreCount
     echo "Autostarting $demand cores of type : execute"
     
-    # First, auto-restart stopped instances up to demand
+
+    if ($demand -le 0) {
+        # TODO: Currently if TargetCoreCount isnt undefined then TargetCount is ignored (so set a core count)
+        $demand = $min_node_count
+    }
+
+     # First, auto-restart stopped instances up to demand
     autorestartDeallocated($demand)
 
     # Next, set TargetCount to autostart any additional capacity
     jetpack autoscale -n execute -c $demand
-    if ($demand -le 0) {
-        # Ensure min node count even if no demand
-        jetpack autoscale -n execute -i $min_node_count
-    }
+
+    # Ensure min node count even if no demand
+    jetpack autoscale -n execute -i $min_node_count
+
+
+    # # TODO: get NodeGroup and convert to slot_type
+    # $demand=targetCoreCount
+    # echo "Autostarting $demand cores of type : execute"
+    
+
+    # if ($demand -le 0) {
+    #     # TODO: Currently if TargetCoreCount isnt undefined then TargetCount is ignored (so set a core count)
+    #     $demand = $min_node_count
+    # }
+
+    #  # First, auto-restart stopped instances up to demand
+    # autorestartDeallocated($demand)
+
+    # # Next, set TargetCount to autostart any additional capacity
+    # jetpack autoscale -n execute -c $demand
+
+    # # Ensure min node count even if no demand
+    # jetpack autoscale -n execute -i $min_node_count    
 }
 
 function dbPop($nodeName) {
