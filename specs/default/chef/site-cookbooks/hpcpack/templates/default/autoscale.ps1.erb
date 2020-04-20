@@ -484,13 +484,29 @@ function targetBatchCoreCount($jobs) {
 }
 
 function currentComputeCapacity() {
-    $sum_cores = Get-HPCNode -GroupName ComputeNodes | Measure-Object -Property ProcessorCores -Sum
-    return $sum_cores.Sum
+    try { 
+        $sum_cores = Get-HPCNode -GroupName ComputeNodes -ErrorAction SilentlyContinue | Measure-Object -Property ProcessorCores -Sum
+        if ($sum_cores -eq $null) { 
+            return 0 
+        } else { 
+            return $sum_cores.Sum
+        }
+    } catch { 
+        return 0 
+    }   
 }
 
 function currentOnlineComputeCapacity() {
-    $sum_cores = Get-HPCNode -GroupName ComputeNodes -State Online | Measure-Object -Property ProcessorCores -Sum
-    return $sum_cores.Sum
+    try { 
+        $sum_cores = Get-HPCNode -GroupName ComputeNodes -State Online  -ErrorAction SilentlyContinue | Measure-Object -Property ProcessorCores -Sum
+        if ($sum_cores -eq $null) { 
+            return 0 
+        } else { 
+            return $sum_cores.Sum
+        }
+    } catch { 
+        return 0 
+    }   
 }
 
 
@@ -646,7 +662,7 @@ function restartInstance($cc_node_name) {
         'Content-Type'="application/json"
     }
     $post_body = @{
-        'names'= @( '"' + $cc_node_name + '"' )
+        'names'= @( $cc_node_name )
     }
     $json_body = $post_body | ConvertTo-Json
     $response = Invoke-RestMethod -Uri $cc_url -Headers $headers -Method 'Post' -Body $json_body

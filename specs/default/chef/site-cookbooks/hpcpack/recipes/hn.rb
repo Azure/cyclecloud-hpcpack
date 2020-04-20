@@ -4,13 +4,10 @@ include_recipe "hpcpack::_join-ad-domain"
 
 bootstrap_dir = node['cyclecloud']['bootstrap']
 mod_dir = "#{bootstrap_dir}\\installHpcSingleHeadNode"
-hpcpack2012_dir = "#{bootstrap_dir}\\hpcpack2012"
 dsc_script = "InstallHpcSingleHeadNode.ps1"
 modules_dir = "C:\\Program\ Files\\WindowsPowerShell\\Modules"
 
 directory mod_dir
-directory hpcpack2012_dir
-
 
 [
    'xPSDesiredStateConfiguration'
@@ -23,16 +20,6 @@ end
 
 cookbook_file "#{bootstrap_dir}\\#{dsc_script}.zip" do
    source "#{dsc_script}.zip"
-   action :create
-end
-
-cookbook_file "#{hpcpack2012_dir}\\HPCHNPrepare.ps1" do
-   source "hpcpack2012/HPCHNPrepare.ps1"
-   action :create
-end
-
-cookbook_file "#{hpcpack2012_dir}\\PrepareHN.ps1" do
-   source "hpcpack2012/PrepareHN.ps1"
    action :create
 end
 
@@ -73,25 +60,14 @@ powershell_script 'set-dsc-InstallHpcSingleHeadNode' do
     not_if 'Get-Service "HpcManagement"  -ErrorAction SilentlyContinue'
 end
 
-powershell_script 'HPCPack2012-PrepareHN' do
-    code <<-EOH
-    # Could use node['fqdn'], but might not work with multiple interfaces?
-    $fqdn = '#{node['hostname']}.#{node['hpcpack']['ad']['domain']}'
-    $base64Password = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes('#{node['hpcpack']['ad']['admin']['password']}'))
-    powershell.exe -ExecutionPolicy Unrestricted -File "#{hpcpack2012_dir}\\PrepareHN.ps1" -DomainFQDN $fqdn -PublicDnsName $fqdn -AdminUserName "#{node['hpcpack']['ad']['admin']['name']}" -AdminBase64Password "$base64Password" > "#{hpcpack2012_dir}\\PrepareHN.log"
-    EOH
-    cwd hpcpack2012_dir
-    only_if 'Add-PsSnapin Microsoft.HPC; (Get-Command Get-HpcNode).Version.Major -lt 5'
-end
-
-
 include_recipe "hpcpack::autostart" if node['cyclecloud']['cluster']['autoscale']['start_enabled']
 
 powershell_script 'Set HPC Pack Configuration' do
     code <<-EOH
     Add-PsSnapin Microsoft.HPC
 
-    Set-HpcClusterProperty -HeartbeatInterval #{node['hpcpack']['config']['HeartbeatInterval']} -InactivityCount #{node['hpcpack']['config']['InactivityCount']}
+    $fqdn = '#{node['hostname']}.#{node['hpcpack']['ad']['domain']}'
+    Set-HpcClusterProperty -HeartbeatInterval #{node['hpcpack']['config']['HeartbeatInterval']} -InactivityCount #{node['hpcpack']['config']['InactivityCount']} -Scheduler $fqdn
 
     EOH
 end

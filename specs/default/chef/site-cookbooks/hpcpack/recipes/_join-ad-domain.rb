@@ -24,7 +24,6 @@ group "Administrators" do
   append true
 end
 
-
 mod_dir = "#{bootstrap_dir}\\joinAD"
 dsc_script = "JoinADDomain.ps1"
 
@@ -36,9 +35,34 @@ end
 directory mod_dir do
 end
 
+
+# Install the dotnet framework if NetFx 4.6 or later not installed
+# if not installed, directly use NetFx 4.
+jetpack_download "ndp48-web.exe" do
+  project "hpcpack"
+  not_if { ::File.exists?("#{node['jetpack']['downloads']}/ndp48-web.exe") }
+  not_if <<-EOH
+    $netfxVer = Get-ItemProperty "HKLM:\\SOFTWARE\\Microsoft\\NET Framework Setup\\NDP\\v4\\Full" -ErrorAction SilentlyContinue | Select -Property Release
+    $netfxVer -and ($netfxVer.Release -ge 393295)
+  EOH
+end
+
+powershell_script 'install-netfx-4.8' do
+  code <<-EOH
+    $ndpLogFile = "#{bootstrap_dir}\\ndp48.log"
+    Start-Process -FilePath #{node['jetpack']['downloads']}\\ndp48-web.exe -ArgumentList "/q /norestart /serialdownload /log `"$ndpLogFile`"" -Wait -PassThru
+  EOH
+  cwd mod_dir
+  not_if <<-EOH
+    $netfxVer = Get-ItemProperty "HKLM:\\SOFTWARE\\Microsoft\\NET Framework Setup\\NDP\\v4\\Full" -ErrorAction SilentlyContinue | Select -Property Release
+    $netfxVer -and ($netfxVer.Release -ge 393295)
+  EOH
+  notifies :run, 'ruby_block[set_reboot_required]', :immediately    
+end    
+
 powershell_script "unzip-#{dsc_script}" do
-    code "#{bootstrap_dir}\\unzip.ps1 #{bootstrap_dir}\\#{dsc_script}.zip #{mod_dir}"
-    creates "#{mod_dir}\\#{dsc_script}"
+  code "#{bootstrap_dir}\\unzip.ps1 #{bootstrap_dir}\\#{dsc_script}.zip #{mod_dir}"
+  creates "#{mod_dir}\\#{dsc_script}"
 end
 
 template "#{bootstrap_dir}\\reset-ad-trust-relationship.ps1" do
@@ -47,43 +71,43 @@ end
 
 
 [
-    'PSDesiredStateConfiguration'
+  'PSDesiredStateConfiguration'
 ].each do |feature|
-    powershell_script "Install #{feature}" do
-        code "Install-Module -Name #{feature} -Force"
-        only_if "!(Get-Module #{feature} -ListAvailable)"
-        not_if '(Get-WmiObject -Class Win32_ComputerSystem).PartOfDomain'
-    end
+  powershell_script "Install #{feature}" do
+    code "Install-Module -Name #{feature} -Force"
+    only_if "!(Get-Module #{feature} -ListAvailable)"
+    not_if '(Get-WmiObject -Class Win32_ComputerSystem).PartOfDomain'
+  end
 end
 
 powershell_script 'set-dsc-JoinADDomain' do
-    code <<-EOH
-    $Acl = Get-Acl "#{modules_dir}"
-    Set-Acl "#{mod_dir}" $Acl
-    $oModPath = [Environment]::GetEnvironmentVariable("PSModulePath", "Machine")
-    [Environment]::SetEnvironmentVariable("PSModulePath", $oModPath + ";" + $pwd, "Machine")
-    $env:PSModulePath = $env:PSModulePath + ";" + $pwd
-    $secpasswd = ConvertTo-SecureString '#{node['hpcpack']['ad']['admin']['password']}' -AsPlainText -Force
-    $mycreds = New-Object System.Management.Automation.PSCredential ("#{node['hpcpack']['ad']['admin']['name']}", $secpasswd)
+  code <<-EOH
+  $Acl = Get-Acl "#{modules_dir}"
+  Set-Acl "#{mod_dir}" $Acl
+  $oModPath = [Environment]::GetEnvironmentVariable("PSModulePath", "Machine")
+  [Environment]::SetEnvironmentVariable("PSModulePath", $oModPath + ";" + $pwd, "Machine")
+  $env:PSModulePath = $env:PSModulePath + ";" + $pwd
+  $secpasswd = ConvertTo-SecureString '#{node['hpcpack']['ad']['admin']['password']}' -AsPlainText -Force
+  $mycreds = New-Object System.Management.Automation.PSCredential ("#{node['hpcpack']['ad']['admin']['name']}", $secpasswd)
 
-    $cd = @{
-        AllNodes = @(
-            @{
-                NodeName = 'localhost'
-                PSDscAllowPlainTextPassword = $true
-                PSDscAllowDomainUser = $true
-            }
-        )}
-    . .\\JoinADDomain.ps1
-    JoinADDomain -DomainName "#{node['hpcpack']['ad']['domain']}" -DNSServer "#{node['hpcpack']['ad']['dns1']},8.8.8.8" -Admincreds $mycreds -RetryCount 4 -RetryIntervalSec 5 -ConfigurationData $cd
-    Start-DscConfiguration .\\JoinADDomain -Wait -Force -Verbose
-    [Environment]::SetEnvironmentVariable("PSModulePath", $oModPath, "Machine")
-    $env:PSModulePath = $oModPath
-    EOH
-    cwd mod_dir
-    not_if '(Get-WmiObject -Class Win32_ComputerSystem).PartOfDomain'
-    notifies :run, 'ruby_block[set_reboot_required]', :immediately    
-    # notifies :reboot_now, 'reboot[Restart Computer]', :immediately
+  $cd = @{
+      AllNodes = @(
+          @{
+              NodeName = 'localhost'
+              PSDscAllowPlainTextPassword = $true
+              PSDscAllowDomainUser = $true
+          }
+      )}
+  . .\\JoinADDomain.ps1
+  JoinADDomain -DomainName "#{node['hpcpack']['ad']['domain']}" -DNSServer "#{node['hpcpack']['ad']['dns1']},8.8.8.8" -Admincreds $mycreds -RetryCount 4 -RetryIntervalSec 5 -ConfigurationData $cd
+  Start-DscConfiguration .\\JoinADDomain -Wait -Force -Verbose
+  [Environment]::SetEnvironmentVariable("PSModulePath", $oModPath, "Machine")
+  $env:PSModulePath = $oModPath
+  EOH
+  cwd mod_dir
+  not_if '(Get-WmiObject -Class Win32_ComputerSystem).PartOfDomain'
+  notifies :run, 'ruby_block[set_reboot_required]', :immediately    
+  # notifies :reboot_now, 'reboot[Restart Computer]', :immediately
 end
 
 
@@ -123,6 +147,6 @@ end
 
 # To be safe - reset trust connection on each converge
 powershell_script 'reset-ad-trust-relationship' do
-    code "#{bootstrap_dir}\\reset-ad-trust-relationship.ps1"
+  code "#{bootstrap_dir}\\reset-ad-trust-relationship.ps1"
 end
 
