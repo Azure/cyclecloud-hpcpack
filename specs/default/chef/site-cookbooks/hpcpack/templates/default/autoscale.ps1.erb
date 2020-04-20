@@ -60,9 +60,8 @@ Add-Type @"
         }
     }
 "@
-
 [System.Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::tls12
-[ServerCertificateValidationCallback]::Ignore();
+[ServerCertificateValidationCallback]::Ignore()
 
 
 function testVariable() {

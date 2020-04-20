@@ -143,24 +143,24 @@ end
 # EOH
 # end
 
-# powershell_script 'add-to-NodeTemplate' do
-#     code <<-EOH
-#     Add-PsSnapin Microsoft.HPC
-#     Set-Content Env:CCP_SCHEDULER "#{node['hpcpack']['hn']['hostname']}"
-#     $this_node = Get-HpcNode -Name (hostname) -Scheduler #{node['hpcpack']['hn']['hostname']}
-#     if ($this_node.HealthState -eq "Unapproved") { 
-#         Assign-HpcNodeTemplate -NodeName (hostname) `
-#             -Name "Default ComputeNode Template" -Confirm:$false `
-#             -Scheduler #{node['hpcpack']['hn']['hostname']}
-#     }
-#     EOH
-#     domain node['hpcpack']['ad']['domain']
-#     user node['hpcpack']['ad']['admin']['name']
-#     password node['hpcpack']['ad']['admin']['password']
-#     retries 3
-#     retry_delay 5
-# #    not_if 'Add-PsSnapin Microsoft.HPC; (Get-Command Get-HpcNode).Version.Major -lt 5'
-# end
+powershell_script 'add-to-NodeTemplate' do
+    code <<-EOH
+    Add-PsSnapin Microsoft.HPC
+    Set-Content Env:CCP_SCHEDULER "#{node['hpcpack']['hn']['hostname']}"
+    $this_node = Get-HpcNode -Name (hostname) -Scheduler #{node['hpcpack']['hn']['hostname']}
+    if ($this_node.HealthState -eq "Unapproved") { 
+        Assign-HpcNodeTemplate -NodeName (hostname) `
+            -Name "Default ComputeNode Template" -Confirm:$false `
+            -Scheduler #{node['hpcpack']['hn']['hostname']}
+    }
+    EOH
+    domain node['hpcpack']['ad']['domain']
+    user node['hpcpack']['ad']['admin']['name']
+    password node['hpcpack']['ad']['admin']['password']
+    retries 3
+    retry_delay 5
+#    not_if 'Add-PsSnapin Microsoft.HPC; (Get-Command Get-HpcNode).Version.Major -lt 5'
+end
 
 
 powershell_script 'set-node-location' do
