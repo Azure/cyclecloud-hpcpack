@@ -39,6 +39,13 @@ powershell_script "Install NuGet" do
   EOH
 end
 
+# Get the nuget binary as well
+jetpack_download "#{node[:cyclecloud][:home]}/bin/nuget.exe" do
+  project "hpcpack"
+  not_if { ::File.exists?("#{node[:cyclecloud][:home]}/bin/nuget.exe") }
+end
+
+
 powershell_script "enable wsman" do
   code 'winrm quickconfig -quiet'
   not_if 'Test-WSMan -ComputerName localhost'
