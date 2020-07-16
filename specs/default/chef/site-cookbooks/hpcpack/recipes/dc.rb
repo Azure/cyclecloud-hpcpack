@@ -43,13 +43,17 @@ powershell_script "unzip-#{dsc_script}" do
     creates "#{mod_dir}\\#{dsc_script}"
 end
 
+    #$Acl = (Get-Item "#{modules_dir}").GetAccessControl('Access') 
+    # $env:PSModulePath = $env:PSModulePath + ";" + $pwd
 powershell_script 'set-dsc-CreateADPDC' do
     code <<-EOH
+    
     $Acl = Get-Acl "#{modules_dir}"
     Set-Acl "#{mod_dir}" $Acl
     $oModPath = [Environment]::GetEnvironmentVariable("PSModulePath", "Machine")
     [Environment]::SetEnvironmentVariable("PSModulePath", $oModPath + ";" + $pwd, "Machine")
     $env:PSModulePath = $env:PSModulePath + ";" + $pwd
+    
     $secpasswd = ConvertTo-SecureString '#{node['hpcpack']['ad']['admin']['password']}' -AsPlainText -Force
     $mycreds = New-Object System.Management.Automation.PSCredential ("#{node['hpcpack']['ad']['admin']['name']}", $secpasswd)
     

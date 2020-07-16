@@ -25,7 +25,7 @@ IconUrl = http://download.cyclecomputing.com/logos/microsoft-192x192.png
    [[node defaults]]
    Credentials = $Credentials
    Region = $Region
-   KeypairLocation = $KeypairLocation
+   KeypairLocation = ~/.ssh/cyclecloud.pem
    SubnetId = ${IfThenElse(SubnetId isnt undefined, SubnetId, vnet.resources.hpcpack.properties.subnets.compute.id)}
 
       [[[configuration]]]
@@ -62,7 +62,7 @@ IconUrl = http://download.cyclecomputing.com/logos/microsoft-192x192.png
 
    [[node ad]]
 
-   ImageName = cycle.image.win2012
+   ImageName = cycle.image.win2016
    MachineType = $ManagerMachineType
    Username = $Username
    Password = $Password
@@ -70,7 +70,7 @@ IconUrl = http://download.cyclecomputing.com/logos/microsoft-192x192.png
    Azure.Identities = $ManagedServiceIdentity
    
 
-      [[[cluster-init hpcpack:default:1.1.0]]]
+      [[[cluster-init hpcpack:default:1.2.0]]]
 
       [[[configuration]]]
       run_list = recipe[hpcpack::dc]
@@ -118,36 +118,43 @@ Order = 10
         DefaultValue = eastus2
 
 
-[parameters Cluster Software]
-Order = 20
-    
+    [[parameters Compute Backend]]
+    Order = 10
+
+        [[[parameter ADServerPrivateIP]]]
+        Description = The static private IP for the AD Node
+        DefaultValue = 10.0.0.5
+
+        [[[parameter ManagerMachineType]]]
+        Label = Manager Machine Type
+        Description = The machine type for the Management nodes
+        ParameterType = Cloud.MachineType
+        DefaultValue = Standard_DS3_v2
+	
     [[parameters Node Access]]
     Description = "Specify the credentials required for access to the node.  The Keypair Path specifies the path on local machines for cyclecloud CLI access."
     Order = 20
 
-        [[[parameter KeyPairLocation]]]
-        Label = Keypair Path
-        Description = The path to the private SSH key to use for the `cyclecloud` user on linux nodes.
-        DefaultValue = /opt/cycle_server/.ssh/cyclecloud.pem
-        Required = True
+        [[[parameter UseKeyVault]]]
+        Label = Use KeyVault
+        DefaultValue = true
+        Widget.Plugin = pico.form.BooleanCheckBox
+        Widget.Label = Use Azure KeyVault to pass secrets safely
+        Order = 10
+
+        [[[parameter ManagedServiceIdentity]]]
+        ParameterType = Azure.ManagedIdentity
+        Label = MSI Identity
+        Description = The resource ID of the Managed Service Identity to apply to the nodes
+        Conditions.Required = UseKeyVault        
+        Conditions.Hidden := !UseKeyVault
+        Order = 15
 
         [[[parameters Secrets]]]
         Description = """Set the AD Admin username and password.
         RECOMMENDED:
         Use Azure KeyVault to store the username and password."""
-
-            [[[[parameter UseKeyVault]]]]
-            Label = Use KeyVault
-            DefaultValue = true
-            Widget.Plugin = pico.form.BooleanCheckBox
-            Widget.Label = Use Azure KeyVault to pass secrets safely
-
-            [[[[parameter ManagedServiceIdentity]]]]
-            ParameterType = Azure.ManagedIdentity
-            Label = MSI Identity
-            Description = The resource ID of the Managed Service Identity to apply to the nodes
-            Conditions.Required = UseKeyVault        
-            Conditions.Hidden := !UseKeyVault
+        Order = 20
 
 
             [[[[parameter VaultName]]]]
@@ -156,6 +163,7 @@ Order = 20
             Required = False
             Conditions.Required = UseKeyVault        
             Conditions.Hidden := !UseKeyVault
+            Order = 30
 
 
             [[[[parameter Username]]]]
@@ -163,6 +171,7 @@ Order = 20
             Description = The username for the built-in local user / AD-admin on all nodes for direct access.
             DefaultValue = cyclecloud
             Required = True
+            Order = 40
 
 
             [[[[parameter PasswordKey]]]]
@@ -171,6 +180,7 @@ Order = 20
             Required = False
             Conditions.Required = UseKeyVault        
             Conditions.Hidden := !UseKeyVault
+            Order = 50
 
 
             [[[[parameter Password]]]]
@@ -179,27 +189,28 @@ Order = 20
             Description = The password for the built-in local user / AD-admin on all nodes for direct access. (The supplied password must be between 12-123 characters long and must satisfy at least 3 of password complexity requirements from the following: 1) Contains an uppercase character 2) Contains a lowercase character 3) Contains a numeric digit 4) Contains a special character)
             Conditions.Required = !UseKeyVault        
             Conditions.Hidden := UseKeyVault
+            Order = 60
 
-            [[[[parameters PFC Certificate]]]]
-            Order = 20
+            [[[[parameter PfxFileName]]]]
+            Label = FileName
+            Description = Filename of pfxcert in the blob dir.
+            DefaultValue = hpc-comm.pfx
+            Order = 70
 
-                [[[[[parameter PfxFileName]]]]]
-                Label = FileName
-                Description = Filename of pfxcert in the blob dir.
-                DefaultValue = hpc-comm.pfx
+            [[[[parameter PfxPasswordKey]]]]
+            Label = PfxPassword Key
+            Description = The KeyVault Key to lookup the password for the pfxcert in the blob dir.
+            Conditions.Required = UseKeyVault
+            Conditions.Hidden := !UseKeyVault
+            Order = 80
 
-                [[[[[parameter PfxPasswordKey]]]]]
-                Label = PfxPassword Key
-                Description = The KeyVault Key to lookup the password for the pfxcert in the blob dir.
-                Conditions.Required = UseKeyVault
-                Conditions.Hidden := !UseKeyVault
-
-                [[[[[parameter PfxPassword]]]]]
-                Label = PfxPassword
-                ParameterType = Password
-                Description = The password for the pfxcert in the blob dir.
-                Conditions.Required = !UseKeyVault
-                Conditions.Hidden := UseKeyVault
+            [[[[parameter PfxPassword]]]]
+            Label = PfxPassword
+            ParameterType = Password
+            Description = The password for the pfxcert in the blob dir.
+            Conditions.Required = !UseKeyVault
+            Conditions.Hidden := UseKeyVault
+            Order = 90
 
     [[parameters Software Configuration]]
     Description = "Add additional software to the nodes from CycleCloud Projects."
@@ -221,36 +232,6 @@ Order = 20
         ParameterType = Cloud.ClusterInitSpecs
 
 
-[parameters Compute Backend]
-Order = 30
-
-    [[parameters Instance Types]]
-    Order = 10
-
-        [[[parameter ADServerPrivateIP]]]
-        Description = The static private IP for the AD Node
-        DefaultValue = 10.0.0.5
-
-        [[[parameter ManagerMachineType]]]
-        Label = Manager Machine Type
-        Description = The machine type for the Management nodes
-        ParameterType = Cloud.MachineType
-        DefaultValue = Standard_DS3_v2
-	
-
-    [[parameters PFC Certificate]]
-    Order = 20
-
-        [[[parameter PfxFileName]]]
-        Label = FileName
-        Description = Filename of pfxcert in the blob dir.
-        DefaultValue = hpc-comm.pfx
-
-        [[[parameter PfxPassword]]]
-        Label = PfxPassword
-        ParameterType = Password
-        Description = The password pfxcert in the blob dir.
-        DefaultValue = "corn-bellows-knitting"
 
 
 [parameters Networking]
