@@ -25,9 +25,10 @@ jetpack_download node['hpcpack']['cn']['installer_filename'] do
   not_if { ::File.exists?("#{node['jetpack']['downloads']}/#{node['hpcpack']['cn']['installer_filename']}") }
 end
 
-powershell_script 'unzip-LogViewer' do
+powershell_script 'unzip-HpcPackInstaller' do
   code "#{bootstrap_dir}\\unzip.ps1 #{node['jetpack']['downloads']}/#{node['hpcpack']['cn']['installer_filename']} #{install_dir}"
   creates "#{install_dir}\\setup.exe"
+  not_if '(Get-Service "HpcManagement" -ErrorAction SilentlyContinue).Status -eq "Running"'
 end
 
 
@@ -43,6 +44,7 @@ powershell_script 'install-msmpi' do
     # Start-Process -FilePath "#{node['jetpack']['downloads']}\\MSMpiSetup.exe" -ArgumentList "/unattend /force /minimal /log `"$mpiLogFile`" /verbose" -Wait
     Start-Process -FilePath "#{install_dir}\\MPI\\MSMpiSetup.exe" -ArgumentList "/unattend /force /minimal /log `"$mpiLogFile`" /verbose" -Wait
   EOH
+  not_if '(Get-Service "HpcManagement" -ErrorAction SilentlyContinue).Status -eq "Running"'
 end
 
 # Install Hpc Compute Node

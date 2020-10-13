@@ -28,28 +28,31 @@ powershell_script "Ensure TLS 1.2 for nuget" do
   EOH
 end
 
-powershell_script "Install NuGet" do
-  code <<-EOH
-  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-  Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
-  EOH
-  only_if <<-EOH
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    !(Get-PackageProvider NuGet -ListAvailable)
-  EOH
-end
+# TODO: Do we need this if we don't install DSC?   It seems to take >2min to install
+# powershell_script "Install NuGet" do
+#   code <<-EOH
+#   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+#   Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
+#   EOH
+#   only_if <<-EOH
+#     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+#     !(Get-PackageProvider NuGet -ListAvailable)
+#   EOH
+# end
+#
+# powershell_script "enable wsman" do
+#   code 'winrm quickconfig -quiet'
+#   not_if 'Test-WSMan -ComputerName localhost'
+# end
+
 
 # Get the nuget binary as well
-jetpack_download "#{node[:cyclecloud][:home]}/bin/nuget.exe" do
+jetpack_download "nuget.exe" do
   project "hpcpack"
+  dest "#{node[:cyclecloud][:home]}/bin/nuget.exe"
   not_if { ::File.exists?("#{node[:cyclecloud][:home]}/bin/nuget.exe") }
 end
 
-
-powershell_script "enable wsman" do
-  code 'winrm quickconfig -quiet'
-  not_if 'Test-WSMan -ComputerName localhost'
-end
 
 jetpack_download node['hpcpack']['cert']['filename'] do
   project "hpcpack"
@@ -80,12 +83,12 @@ end
 
 if node['hpcpack']['install_logviewer']
   jetpack_download "LogViewer1.2.2.4.zip" do
-  project "hpcpack"
+    project "hpcpack"
   end
 
   powershell_script 'unzip-LogViewer' do
-  code "#{bootstrap_dir}\\unzip.ps1 #{node['jetpack']['downloads']}\\LogViewer1.2.2.4.zip #{bootstrap_dir}"
-  creates "#{bootstrap_dir}\\LogViewer1.2.2.4"
+    code "#{bootstrap_dir}\\unzip.ps1 #{node['jetpack']['downloads']}\\LogViewer1.2.2.4.zip #{bootstrap_dir}"
+    creates "#{bootstrap_dir}\\LogViewer1.2.2.4"
   end
 end
 

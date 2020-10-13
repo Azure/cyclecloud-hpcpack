@@ -9,6 +9,24 @@ modules_dir = "C:\\Program\ Files\\WindowsPowerShell\\Modules"
 
 directory mod_dir
 
+powershell_script "Install NuGet" do
+    code <<-EOH
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
+    EOH
+    only_if <<-EOH
+      [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+      !(Get-PackageProvider NuGet -ListAvailable)
+    EOH
+end
+
+powershell_script "enable wsman" do
+    code 'winrm quickconfig -quiet'
+    not_if 'Test-WSMan -ComputerName localhost'
+end
+  
+  
+
 [
    'xPSDesiredStateConfiguration'
 ].each do |feature|
@@ -65,10 +83,21 @@ include_recipe "hpcpack::autostart" if node['cyclecloud']['cluster']['autoscale'
 powershell_script 'Set HPC Pack Configuration' do
     code <<-EOH
     Add-PsSnapin Microsoft.HPC
-
     $fqdn = '#{node['hostname']}.#{node['hpcpack']['ad']['domain']}'
     Set-HpcClusterProperty -HeartbeatInterval #{node['hpcpack']['config']['HeartbeatInterval']} -InactivityCount #{node['hpcpack']['config']['InactivityCount']} -Scheduler $fqdn
-
     EOH
 end
 
+powershell_script 'Make HN a Broker Node' do
+    code <<-EOH
+    Add-PsSnapin Microsoft.HPC
+    Set-HpcNode -name "#{node['hostname']}" -role brokernode
+    EOH
+end
+
+powershell_script 'Bring HPC Pack HN Online' do
+    code <<-EOH
+    Add-PsSnapin Microsoft.HPC
+    Set-HpcNodeState -name "#{node['hostname']}" -state online
+    EOH
+end
