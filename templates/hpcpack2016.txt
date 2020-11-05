@@ -36,12 +36,11 @@ Autoscale = $Autoscale
    Azure.Publisher = MicrosoftWindowsServerHPCPack
    Azure.Offer = WindowsServerHPCPack
    Azure.Sku = 2016U1CN-WS2016
-
    Azure.ImageVersion = 5.1.6125
    Azure.OS = windows
-
    InstallJetpack = true
-   JetpackPlatform = windows
+   ImageOS = windows
+   AwaitInstallation = true
 
    Username = $Username
    Password = $Password
@@ -76,11 +75,16 @@ Autoscale = $Autoscale
    AdditionalClusterInitSpecs = $ManagementClusterInitSpecs
 
 
-      [[[cluster-init hpcpack:default:1.0.0]]]
+      [[[cluster-init hpcpack:default:1.2.0]]]
 
       [[[configuration]]]
       run_list = recipe[hpcpack::hn]
       cyclecloud.discoverable = true
+
+
+      [[[configuration hpcpack]]]
+      install_logviewer = false
+
 
       [[[network-interface eth0]]]
       AssociatePublicIpAddress = $MasterPublicIp
@@ -126,7 +130,7 @@ Autoscale = $Autoscale
 
    AdditionalClusterInitSpecs = $ExecuteClusterInitSpecs
    
-      [[[cluster-init hpcpack:default:1.0.0]]]
+      [[[cluster-init hpcpack:default:1.2.0]]]
 
       [[[configuration]]]
       run_list = recipe[hpcpack::cn]

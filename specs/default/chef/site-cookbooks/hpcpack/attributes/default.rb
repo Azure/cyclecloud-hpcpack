@@ -2,6 +2,9 @@ default['hpcpack']['ad']['dns1'] = "10.0.0.4"
 default['hpcpack']['ad']['dns2'] = "8.8.8.8"
 default['hpcpack']['hn']['hostname'] = nil
 
+default['hpcpack']['hn']['installer_filename'] = "HPCPack2016Update3-Full-Refresh-v6450.zip"
+default['hpcpack']['cn']['installer_filename'] = "HPCPack2016Update3-Full-Refresh-v6450.zip"
+
 # HPC Pack Configuration options
 default['hpcpack']['config']['HeartbeatInterval'] = 30
 default['hpcpack']['config']['InactivityCount'] = 10

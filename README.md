@@ -12,7 +12,7 @@ head node, compute nodes with autoscale as needed.
 CycleCloud can now simultaneously orchestrate environments described in ARM 
 templates.  This feature requires version 7.x release of CycleCloud.
 
-This project relies on the [HPC Pack github](https://github.com/MsHpcPack/HPCPack2016)
+This project relies on the [HPC Pack github](https://github.com/Azure/hpcpack-template-2016)
 in particular the DSC resources.  Project setup to download dependencies
 are [scripted](setup_project.sh).
 
