@@ -4,7 +4,7 @@ import glob
 import os
 import shutil
 import sys
-import tarfile
+import zipfile
 import tempfile
 from argparse import Namespace
 from subprocess import check_call
@@ -15,9 +15,9 @@ CYCLECLOUD_API_VERSION = "8.0.1"
 
 
 def build_sdist() -> str:
-    cmd = [sys.executable, "setup.py", "sdist"]
+    cmd = [sys.executable, "setup.py", "sdist", "--formats=zip"]
     check_call(cmd, cwd=os.path.abspath("hpcpack-autoscaler"))
-    sdists = glob.glob("hpcpack-autoscaler/dist/cyclecloud-hpcpack-*.tar.gz")
+    sdists = glob.glob("hpcpack-autoscaler/dist/cyclecloud-hpcpack-*.zip")
     assert len(sdists) == 1, "Found %d sdist packages, expected 1" % len(sdists)
     path = sdists[0]
     fname = os.path.basename(path)
@@ -99,27 +99,21 @@ def execute() -> None:
     if not os.path.exists("dist"):
         os.makedirs("dist")
 
-    tf = tarfile.TarFile.gzopen(
-        "dist/cyclecloud-hpcpack-pkg-{}.tar.gz".format(version), "w"
+    zf = zipfile.ZipFile(
+        "dist/cyclecloud-hpcpack-pkg-{}.zip".format(version), "w", zipfile.ZIP_DEFLATED
     )
 
     build_dir = tempfile.mkdtemp("cyclecloud-hpcpack")
 
-    def _add(name: str, path: Optional[str] = None, mode: Optional[int] = None) -> None:
+    def _add(name: str, path: Optional[str] = None) -> None:
         path = path or name
-        tarinfo = tarfile.TarInfo("cyclecloud-hpcpack/" + name)
-        tarinfo.size = os.path.getsize(path)
-        tarinfo.mtime = int(os.path.getmtime(path))
-        if mode:
-            tarinfo.mode = mode
-
-        with open(path, "rb") as fr:
-            tf.addfile(tarinfo, fr)
+        print(f"Adding : {name} from {path}")
+        zf.write(path, name)
 
     packages = []
     for dep in cycle_libs:
         dep_path = os.path.abspath(os.path.join("libs", dep))
-        _add("packages/" + dep, dep_path)
+        #_add(os.path.join("packages", dep), dep_path)
         packages.append(dep_path)
 
     check_call(["pip", "download"] + packages, cwd=build_dir)
@@ -132,7 +126,7 @@ def execute() -> None:
         path = os.path.join(build_dir, fil)
         _add("packages/" + fil, path)
 
-    _add("install.ps1", mode=os.stat("install.ps1")[0])
+    _add("install.ps1")
 
 
 if __name__ == "__main__":
