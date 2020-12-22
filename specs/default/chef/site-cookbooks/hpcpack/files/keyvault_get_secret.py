@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import httplib
+import http.client
 import urllib
 import json
 import ssl
@@ -16,12 +16,12 @@ def create_ssl_context():
 
 
 def get_auth_token():
-    conn = httplib.HTTPConnection("169.254.169.254", timeout=2)
+    conn = http.client.HTTPConnection("169.254.169.254", timeout=2)
     headers = {'Metadata': True}
     params = {'api-version': '2018-02-01',
               'resource': 'https://vault.azure.net'}
 
-    token_url = '/metadata/identity/oauth2/token?%s' % urllib.urlencode(params)
+    token_url = '/metadata/identity/oauth2/token?%s' % urllib.parse.urlencode(params)
     conn.request("GET", token_url, headers=headers)
     r = conn.getresponse()
     if r.status != 200:
@@ -35,14 +35,14 @@ def get_keyvault_secret(access_token, vault_name, secret_key):
     
     vault_address = '%s.vault.azure.net' % vault_name
     ssl_context = create_ssl_context()
-    conn = httplib.HTTPSConnection(vault_address, context=ssl_context, timeout=15)
+    conn = http.client.HTTPSConnection(vault_address, context=ssl_context, timeout=15)
     
 
     
     headers = {'Authorization': 'Bearer %s' % access_token}
     params = {'api-version': '2016-10-01'}
 
-    secret_url = '/secrets/%s?%s' % (secret_key, urllib.urlencode(params))
+    secret_url = '/secrets/%s?%s' % (secret_key, urllib.parse.urlencode(params))
     conn.request("GET", secret_url, headers=headers)
     r = conn.getresponse()
     if r.status != 200:
