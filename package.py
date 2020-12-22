@@ -116,7 +116,7 @@ def execute() -> None:
         #_add(os.path.join("packages", dep), dep_path)
         packages.append(dep_path)
 
-    check_call(["pip", "download"] + packages, cwd=build_dir)
+    check_call(['pip', 'download'] + packages, cwd=build_dir)
 
     print("Using build dir", build_dir)
     for fil in os.listdir(build_dir):

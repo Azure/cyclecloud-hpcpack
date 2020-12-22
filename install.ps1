@@ -9,7 +9,7 @@
 [string]$BOOTSTRAP = "C:\cycle\jetpack\system\bootstrap"
 [string]$AUTOSCALER_VENV="c:\cycle\hpcpack-autoscaler\.venvs\cyclecloud-hpcpack"
 
-mkdir "$AUTOSCALER_HOME"
+mkdir -Force "$AUTOSCALER_HOME"
 
 $env:Path += ";" + $JETPACK_BIN
 if (-not (Test-Path "C:\cycle\python.3.7.7")) {
@@ -20,10 +20,10 @@ if (-not (Test-Path "$AUTOSCALER_VENV")) {
 }
 & $AUTOSCALER_VENV\Scripts\Activate.ps1
 
-
+ 
 & pip install -U pip
 # & pip install urllib3 requests typeguard jsonpickle pytz
-& pip install -U packages\*
+& pip install -U (get-item $PSScriptRoot\packages\*)
 # & pip install -e .
 
 
