@@ -11,10 +11,9 @@ Autoscale = $Autoscale
    [[node defaults]]
    Credentials = $Credentials
    Region = $Region
-   KeypairLocation = $KeypairLocation
+   KeypairLocation = ~/.ssh/cyclecloud.pem
    SubnetId = $SubnetId
-
-    Azure.Identities = $ManagedServiceIdentity
+   Azure.Identities = $ManagedServiceIdentity
 
       [[[configuration]]]
       cyclecloud.maintenance_converge.enabled = true
@@ -32,15 +31,8 @@ Autoscale = $Autoscale
       AssociatePublicIpAddress = true
 
    [[node windowshpcnodes]]
-   Abstract = true   
-   Azure.Publisher = MicrosoftWindowsServerHPCPack
-   Azure.Offer = WindowsServerHPCPack
-   Azure.Sku = 2016U1CN-WS2016
-   Azure.ImageVersion = 5.1.6125
-   Azure.OS = windows
-   InstallJetpack = true
-   ImageOS = windows
-   AwaitInstallation = true
+   Abstract = true
+   ImageName =  $ComputeNodeImageName
 
    Username = $Username
    Password = $Password
@@ -48,7 +40,6 @@ Autoscale = $Autoscale
    AdditionalClusterInitSpecs = $DefaultClusterInitSpecs
 
       [[[configuration hpcpack]]]
-      install_logviewer = false      
       ad.domain = $ActiveDirectoryDomain
       ad.dns1 = $ActiveDirectoryAddress
 
@@ -58,33 +49,31 @@ Autoscale = $Autoscale
       ad.admin.password = $Password
       cert.filename = $PfxFilename
       cert.password = $PfxPassword
-
       
       [[[configuration hpcpack.keyvault]]]
       vault_name = $VaultName
       admin.password_key = $PasswordKey
       cert.password_key = $PfxPasswordKey
 
+      [[[cluster-init hpcpack:default:1.2.0]]]
 
 
    [[node hn]]
    Extends = windowshpcnodes
    MachineType = $ManagerMachineType
-   Azure.Sku = 2016U1HN-WS2016
-
+   # ComputerName = $ClusterName
+   ComputerName = hn
+   
+   ImageName = $HeadNodeImageName
    AdditionalClusterInitSpecs = $ManagementClusterInitSpecs
 
 
-      [[[cluster-init hpcpack:default:1.2.0]]]
-
       [[[configuration]]]
-      run_list = recipe[hpcpack::hn]
       cyclecloud.discoverable = true
+      hpcpack.install_logviewer = false
 
 
-      [[[configuration hpcpack]]]
-      install_logviewer = false
-
+      [[[cluster-init hpcpack:hn:1.2.0]]]
 
       [[[network-interface eth0]]]
       AssociatePublicIpAddress = $MasterPublicIp
@@ -115,9 +104,10 @@ Autoscale = $Autoscale
       Azure.Lun = 0
 
 
-   [[nodearray execute]]
+   [[nodearray cn]]
    Extends = windowshpcnodes
    MachineType = $ExecuteMachineType
+   ComputerNamePrefix = cn-
 
    # Azure Low Priority Instances?
    Interruptible = $azureUseLowPrio
@@ -130,10 +120,15 @@ Autoscale = $Autoscale
 
    AdditionalClusterInitSpecs = $ExecuteClusterInitSpecs
    
-      [[[cluster-init hpcpack:default:1.2.0]]]
-
       [[[configuration]]]
-      run_list = recipe[hpcpack::cn]
+
+      
+      # [[[configuration autoscale.resources]]]
+      # slots = 4
+      # foo = true
+
+
+      [[[cluster-init hpcpack:cn:1.2.0]]]
 
       [[[network-interface eth0]]]
       AssociatePublicIpAddress = false
@@ -185,12 +180,6 @@ Order = 20
     [[parameters Node Access]]
     Description = "Specify the credentials required for access to the node.  The Keypair Path specifies the path on local machines for cyclecloud CLI access."
     Order = 20
-
-        [[[parameter KeyPairLocation]]]
-        Label = Keypair Path
-        Description = The path to the private SSH key to use for the `cyclecloud` user on linux nodes.
-        DefaultValue = /opt/cycle_server/.ssh/cyclecloud.pem
-        Required = True
 
         [[[parameters Secrets]]]
         Description = """Set the AD Admin username and password.
@@ -301,6 +290,25 @@ Order = 30
         Description = The machine type for the default Execute nodes
         ParameterType = Cloud.MachineType
         DefaultValue = Standard_DS3_v2
+
+    [[parameters Software]]
+    Description = "Specify the scheduling software, and base OS installed on all nodes, and optionally the cluster-init and chef versions from your Locker."
+    Order = 10
+
+        [[[parameter HeadNodeImageName]]]
+        Label = HN Image
+        Required = true
+        ParameterType = Cloud.Image
+        DefaultValue = MicrosoftWindowsServerHPCPack:WindowsServerHPCPack:2016u3hn-ws2016:5.3.6450
+
+        [[[parameter ComputeNodeImageName]]]
+        Label = CN Image
+        Required = true
+        ParameterType = Cloud.Image
+        DefaultValue = cycle.image.win2016
+        Config.Filter := Package in {"cycle.image.win2016"}
+
+
 
     [[parameters Auto-Scaling]]
     Description = "The cluster can autoscale to the workload, adding execute hosts as jobs are queued. To enable this check the box below and choose the initial and maximum core counts for the cluster"

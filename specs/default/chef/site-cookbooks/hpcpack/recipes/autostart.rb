@@ -4,6 +4,11 @@
 #
 
 bootstrap_dir = node['cyclecloud']['bootstrap']
+install_dir = "#{bootstrap_dir}/hpcpack-autoscaler-installer"
+install_pkg = "cyclecloud-hpcpack-pkg-1.2.0.zip"
+
+# Default : c:\cycle\hpcpack-autoscaler
+autoscaler_dir="#{node[:cyclecloud][:home]}\\..\\hpcpack-autoscaler" 
 
 # template "#{bootstrap_dir}\\autoscale-logging-wrapper.ps1" do
 #     source "autoscale-logging-wrapper.ps1.erb"
@@ -41,17 +46,25 @@ bootstrap_dir = node['cyclecloud']['bootstrap']
 #     #only_if { node['cyclecloud']['cluster']['autoscale']['start_enabled'] }
 # end
 
+directory install_dir do
+    action :create
+end
+
 
 # Get the autoscale packages
-%w{cyclecloud_api-8.0.1-py2.py3-none-any.whl cyclecloud-scalelib-0.1.1.tar.gz hpcpack-autoscaler.zip}.each do |pkg|
-    jetpack_download pkg do
-        project "hpcpack"
-        dest "#{bootstrap_dir}/#{pkg}"
-        not_if { ::File.exists?("#{bootstrap_dir}/#{pkg}") }
-    end
+jetpack_download install_pkg do
+    project "hpcpack"
+    not_if { ::File.exists?("#{node['jetpack']['downloads']}\\#{install_pkg}") }
 end
 
 powershell_script 'unzip-autoscaler' do
-    code "#{bootstrap_dir}\\unzip.ps1 #{bootstrap_dir}\\hpcpack-autoscaler.zip #{bootstrap_dir}"
-    creates "#{bootstrap_dir}\\hpcpack-autoscaler"
+    code "#{bootstrap_dir}\\unzip.ps1 #{node['jetpack']['downloads']}\\#{install_pkg} #{install_dir}"
+    creates "#{install_dir}\\install.ps1"
 end
+
+# TODO: Do we need a guard here?   
+#(Currently relies on install.ps1 to be safely re-runnable (idempotent or upgradable))
+powershell_script 'install-autoscaler' do
+    code "& #{install_dir}\\install.ps1"
+end
+
