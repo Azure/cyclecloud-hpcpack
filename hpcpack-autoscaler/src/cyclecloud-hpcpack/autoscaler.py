@@ -12,7 +12,7 @@ import hpc.autoscale.hpclogging as logging
 
 from hpc.autoscale.example.readmeutil import clone_dcalc, example, withcontext
 from hpc.autoscale.hpctypes import Memory
-from hpc.autoscale.job.computenode import SchedulerNode
+from hpc.autoscale.job.schedulernode import SchedulerNode
 from hpc.autoscale.job.job import Job
 from hpc.autoscale.node import nodemanager
 from hpc.autoscale.node.constraints import BaseNodeConstraint
@@ -21,8 +21,8 @@ from hpc.autoscale.node.nodemanager import new_node_manager
 from hpc.autoscale.results import DefaultContextHandler, register_result_handler, BootupResult, ShutdownResult
 
 
-from hpcpack.restclient import HpcRestClient
-from hpcpack.hpc_cluster_manager import HpcClusterManager
+from .restclient import HpcRestClient
+from .hpc_cluster_manager import HpcClusterManager
 
 CONFIG_DEFAULTS = {
     "logging": {
@@ -72,6 +72,7 @@ def scale_up(config: Dict[str, Any],
 
     logging.info("Scaling up...")
     target_counts = get_target_counts(config, hpcpack_rest_client)
+    logging.info("grow decision: {}".format(target_counts))
     node_mgr = new_node_manager(config['cyclecloud'])
 
     for group, grow_decision in target_counts.items():
@@ -79,7 +80,7 @@ def scale_up(config: Dict[str, Any],
 
         # TODO: Nodearray name should be derived from group name...
         # nodearray_names = config.nodearray_names(group)
-        nodearray_names = ['execute']
+        nodearray_names = ['cn']
 
         # WARNING: Specify ncpus or all  jobs will be packed on 1 node!
         selector =  {'ncpus': 1}
@@ -202,15 +203,15 @@ def manage_cluster(cconfig: Dict[str, Any],
     
 
 def load_config_defaults_from_jetpack() -> None:
-    jetpack_cmd = 'C:\cycle\jetpack\system\bin\jetpack_wrapper.cmd'
+    jetpack_cmd = 'C:\cycle\jetpack\system\Bin\jetpack_wrapper.cmd'
     if not os.path.exists(jetpack_cmd):
         return
     
     try:        
-        cluster_name = check_output([jetpack_cmd, "config", 'cyclecloud.cluster.name'])
-        url = check_output([jetpack_cmd, "config", 'cyclecloud.config.web_server'])
-        password = check_output([jetpack_cmd, "config", 'cyclecloud.config.password'])
-        username = check_output([jetpack_cmd, "config", 'cyclecloud.config.username'])
+        cluster_name = check_output([jetpack_cmd, "config", 'cyclecloud.cluster.name']).strip().decode()
+        url = check_output([jetpack_cmd, "config", 'cyclecloud.config.web_server']).strip().decode()
+        password = check_output([jetpack_cmd, "config", 'cyclecloud.config.password']).strip().decode()
+        username = check_output([jetpack_cmd, "config", 'cyclecloud.config.username']).strip().decode()
 
         global CONFIG_DEFAULTS
         CONFIG_DEFAULTS['cyclecloud']['cluster_name'] = cluster_name
@@ -273,7 +274,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         config_file = sys.argv[1]    
 
-    dry_run = false
+    dry_run = False
     if len(sys.argv) > 2:
         dry_run = sys.argv[2].lower() in ['true', 'dryrun']
 

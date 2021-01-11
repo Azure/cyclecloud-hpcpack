@@ -6,6 +6,7 @@
 bootstrap_dir = node['cyclecloud']['bootstrap']
 install_dir = "#{bootstrap_dir}/hpcpack-autoscaler-installer"
 install_pkg = "cyclecloud-hpcpack-pkg-1.2.0.zip"
+cert_pem = "hpc-comm.pem"
 
 # Default : c:\cycle\hpcpack-autoscaler
 autoscaler_dir="#{node[:cyclecloud][:home]}\\..\\hpcpack-autoscaler" 
@@ -50,6 +51,17 @@ directory install_dir do
     action :create
 end
 
+
+jetpack_download cert_pem do
+    project "hpcpack"
+    not_if { ::File.exists?("#{node['jetpack']['downloads']}/#{cert_pem}") }
+end
+
+powershell_script 'unzip-LogViewer' do
+    code "Copy-Item -Path #{node['jetpack']['downloads']}\\#{cert_pem} -Destination #{bootstrap_dir}\\#{cert_pem}"
+    creates "#{bootstrap_dir}\\#{cert_pem}"
+    not_if { ::File.exists?("#{bootstrap_dir}/#{cert_pem}") }
+end
 
 # Get the autoscale packages
 jetpack_download install_pkg do

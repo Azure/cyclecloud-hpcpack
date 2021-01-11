@@ -28,24 +28,6 @@ powershell_script "Ensure TLS 1.2 for nuget" do
   EOH
 end
 
-# TODO: Do we need this if we don't install DSC?   It seems to take >2min to install
-# powershell_script "Install NuGet" do
-#   code <<-EOH
-#   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-#   Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
-#   EOH
-#   only_if <<-EOH
-#     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-#     !(Get-PackageProvider NuGet -ListAvailable)
-#   EOH
-# end
-#
-# powershell_script "enable wsman" do
-#   code 'winrm quickconfig -quiet'
-#   not_if 'Test-WSMan -ComputerName localhost'
-# end
-
-
 # Get the nuget binary as well
 jetpack_download "nuget.exe" do
   project "hpcpack"
@@ -59,7 +41,7 @@ jetpack_download node['hpcpack']['cert']['filename'] do
   not_if { ::File.exists?("#{node['jetpack']['downloads']}/#{node['hpcpack']['cert']['filename']}") }
 end
 
-log "Installing hpc comm cert with pass :  [#{node['hpcpack']['cert']['password']}]..." do level :warn end
+log "Installing HPC communication certificate..." do level :warn end
 powershell_script 'install hpc comm cert' do
   code <<-EOH
   $secpasswd = ConvertTo-SecureString '#{node['hpcpack']['cert']['password']}' -AsPlainText -Force

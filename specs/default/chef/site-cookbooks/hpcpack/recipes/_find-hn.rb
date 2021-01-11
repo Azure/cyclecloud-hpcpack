@@ -22,5 +22,8 @@ if node[:hpcpack][:hn][:hostname].nil?
     node.default[:hpcpack][:hn][:hostname] = server_node[:hostname]
     node.default[:hpcpack][:hn][:ip_address] = server_node[:ipaddress]
     node.default[:hpcpack][:hn][:fqdn] = server_node[:fqdn]
-  
+end
+
+if node[:hpcpack][:headNodeAsDC]
+  node.default[:hpcpack][:ad][:dns1] = node.default[:hpcpack][:hn][:ip_address]
 end
