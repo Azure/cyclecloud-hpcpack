@@ -22,8 +22,10 @@ if node[:hpcpack][:hn][:hostname].nil?
     node.default[:hpcpack][:hn][:hostname] = server_node[:hostname]
     node.default[:hpcpack][:hn][:ip_address] = server_node[:ipaddress]
     node.default[:hpcpack][:hn][:fqdn] = server_node[:fqdn]
+    log "Head node #{server_node[:hostname]} found: IP=#{server_node[:ipaddress]}, FQDN=#{server_node[:fqdn]}" do level :info end
 end
 
 if node[:hpcpack][:headNodeAsDC]
+  log "Head node (IP=#{node.default[:hpcpack][:hn][:ip_address]}) acts as domain controller" do level :info end
   node.default[:hpcpack][:ad][:dns1] = node.default[:hpcpack][:hn][:ip_address]
 end

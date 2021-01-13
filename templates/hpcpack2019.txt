@@ -28,7 +28,7 @@ Autoscale = $Autoscale
    MachineType = $ProxyMachineType
 
       [[[network-interface eth0]]]
-      AssociatePublicIpAddress = false
+      AssociatePublicIpAddress = $ProxyPublicIp
 
    [[node windowshpcnodes]]
    Abstract = true
@@ -173,8 +173,8 @@ Order = 10
        Order = 6
 
        [[parameter PromoteHnAsDC]]
-       Label = HeadNode As DC
-       Description = Promote Head Node as DC
+       Label = New AD Domain
+       Description = Create a new AD domain and promote the head node as domain controller
        ParameterType = Boolean
        DefaultValue = false
        Order = 6
@@ -383,6 +383,12 @@ Order = 40
         DefaultValue = true
         Widget.Plugin = pico.form.BooleanCheckBox
         Widget.Label = Allow cloud instances to report back their state
+
+        [[[parameter ProxyPublicIp]]]
+        Label = Return Proxy
+        DefaultValue = false
+        Widget.Plugin = pico.form.BooleanCheckBox
+        Widget.Label = Assign a public ip address to the proxy node
 
         [[[parameter MasterPublicIp]]]
         Label = Master has Public IP

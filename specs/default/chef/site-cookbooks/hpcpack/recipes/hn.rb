@@ -1,7 +1,7 @@
 include_recipe "hpcpack::_get_secrets"
 include_recipe "hpcpack::_common"
 include_recipe "hpcpack::_join-ad-domain" if node['hpcpack']['headNodeAsDC'] == false
-include_recipe "hpcpack::_install-ad-domain" if node['hpcpack']['headNodeAsDC']
+include_recipe "hpcpack::_new-ad-domain" if node['hpcpack']['headNodeAsDC']
 
 bootstrap_dir = node['cyclecloud']['bootstrap']
 
