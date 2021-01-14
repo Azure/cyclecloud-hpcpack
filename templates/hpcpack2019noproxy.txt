@@ -2,7 +2,7 @@
 ## Microsoft HPC Pack 2019
 ###########################
 
-[cluster hpcpack]
+[cluster hpcpack_noproxy]
 FormLayout = selectionpanel
 Category = Schedulers
 IconUrl = http://download.cyclecomputing.com/logos/microsoft-192x192.png
@@ -21,14 +21,6 @@ Autoscale = $Autoscale
       cyclecloud.cluster.autoscale.idle_time_after_jobs = 900
       cyclecloud.cluster.autoscale.idle_time_before_jobs = 3600
       cyclecloud.node.prevent_metadata_access = false
-
-   [[node proxy]]
-   IsReturnProxy = true
-   ImageName = cycle.image.centos7
-   MachineType = $ProxyMachineType
-
-      [[[network-interface eth0]]]
-      AssociatePublicIpAddress = $ProxyPublicIp
 
    [[node windowshpcnodes]]
    Abstract = true
@@ -286,12 +278,6 @@ Order = 30
         Description = The machine type for the Management nodes
         ParameterType = Cloud.MachineType
         DefaultValue = Standard_D4_v4
-
-        [[[parameter ProxyMachineType]]]
-        Label = Proxy Machine Type
-        Description = The machine type for the proxy node
-        ParameterType = Cloud.MachineType
-        DefaultValue = Standard_D2_v4
 	
         [[[parameter ExecuteMachineType]]]
         Label = Execute Type
@@ -384,15 +370,9 @@ Order = 40
 
         [[[parameter ReturnProxy]]]
         Label = Return Proxy
-        DefaultValue = true
-        Widget.Plugin = pico.form.BooleanCheckBox
-        Widget.Label = Allow cloud instances to report back their state
-
-        [[[parameter ProxyPublicIp]]]
-        Label = Return Proxy
         DefaultValue = false
         Widget.Plugin = pico.form.BooleanCheckBox
-        Widget.Label = Assign a public ip address to the proxy node
+        Widget.Label = Allow cloud instances to report back their state
 
         [[[parameter MasterPublicIp]]]
         Label = Master has Public IP
