@@ -80,3 +80,12 @@ powershell_script 'install-autoscaler' do
     code "& #{install_dir}\\install.ps1"
 end
 
+windows_task 'cyclecloud-hpc-autoscaler' do
+    task_name "Cyclecloud-HPC-Autoscaler"
+    command   "powershell.exe -file C:\\cycle\\jetpack\\bin\\azcc_autoscale.ps1"
+    user      "#{node['hpcpack']['ad']['domain']}\\#{node['hpcpack']['ad']['admin']['name']}"
+    password  node['hpcpack']['ad']['admin']['password']
+    frequency :minute
+    frequency_modifier 1
+    only_if { node['cyclecloud']['cluster']['autoscale']['start_enabled'] }
+end

@@ -2,27 +2,17 @@ import os
 import json
 import math
 import sys
-import typing
-from uuid import uuid4
-from typing import Any, Callable, Dict, Iterable, List, Optional, TextIO, Tuple
+from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
-from subprocess import check_call, check_output, CalledProcessError
-
+from subprocess import check_output, CalledProcessError
 import hpc.autoscale.hpclogging as logging
-
-from hpc.autoscale.example.readmeutil import clone_dcalc, example, withcontext
-from hpc.autoscale.hpctypes import Memory
-from hpc.autoscale.job.schedulernode import SchedulerNode
-from hpc.autoscale.job.job import Job
-from hpc.autoscale.node import nodemanager
-from hpc.autoscale.node.constraints import BaseNodeConstraint
-from hpc.autoscale.node.node import Node, UnmanagedNode
 from hpc.autoscale.node.nodemanager import new_node_manager
 from hpc.autoscale.results import DefaultContextHandler, register_result_handler, BootupResult, ShutdownResult
 
 
-from .restclient import HpcRestClient
-from .hpc_cluster_manager import HpcClusterManager
+from .restclient import HpcRestClient, GrowDecision
+from .caseinsensitive import ci_equals, ci_in, ci_interset, ci_lookup
+from .hpcnodehistory import HpcNodeHistory, HpcNodeItem
 
 CONFIG_DEFAULTS = {
     "logging": {
@@ -35,13 +25,14 @@ CONFIG_DEFAULTS = {
         "default": 1
     },
     "autoscale": {
+        "start_enabled": True,
         "idle_time_after_jobs": 300,
         "provisioning_timeout": 1500,
         "max_deallocated_nodes": 300,
     },
     'hpcpack': {
         "pem": "C:\\cycle\\jetpack\\system\\bootstrap\\hpc-comm.pem",
-        "hn_hostname": "hn",
+        "hn_hostname": "localhost",
     },
     'cyclecloud': {
         "cluster_name": None,
@@ -52,176 +43,325 @@ CONFIG_DEFAULTS = {
     },
 }
 
-
-def get_target_counts(config: Dict[str, Any], 
-    hpcpack_rest_client: Optional[HpcRestClient]
-) -> Dict[str, Any]:
-
-    grow_decision = hpcpack_rest_client.get_grow_decision()
-    # also provides sockets_to_grow...  but do we care?  
-    return grow_decision  
-
-def scale_up(config: Dict[str, Any],
-    hpcpack_rest_client: Optional[HpcRestClient] = None,
+def autoscale_hpcpack(
+    config: Dict[str, Any],
     ctx_handler: DefaultContextHandler = None,
+    hpcpack_rest_client: Optional[HpcRestClient] = None,
     dry_run: bool = False,
-) -> BootupResult:
+) -> None:
 
+    if not hpcpack_rest_client:
+        hpcpack_rest_client = new_rest_client(config)
+
+    if ctx_handler:
+        ctx_handler.set_context("[Sync-Status]")
+    logging.info("Synchronizing the nodes between Cycle cloud and HPC Pack")
+    # Load history info
+    node_history = HpcNodeHistory("C:\\cycle\\hpcpack-autoscaler\\state.txt")
+    # Get node list from Cycle Cloud
+    node_mgr = new_node_manager(config['cyclecloud'])
+    # We only need CC nodes with host name when syncing nodes between CC and HPCPack
+    cc_nodes = [n for n in node_mgr.get_nodes() if n.hostname]
+    cc_hostnames = [n.hostname for n in cc_nodes]
+    cc_node_ids = [n.delayed_node_id.node_id for n in cc_nodes]
+    nodename_removed_in_cc = []
+    nodename_on_shrink_in_cc = []
+    for nhi in node_history.active_items:
+        if not ci_in(nhi.node_id, cc_node_ids):
+            # node already removed in CC side
+            logging.info("{} is out-dated".format(nhi))
+            nhi.archive_time = datetime.utcnow()
+            nodename_removed_in_cc.append(nhi.hostname)
+            continue
+        if not ci_in(nhi.hostname, cc_hostnames):
+            # should not happen
+            logging.warning("hostname changed for {}".format(nhi))
+            nhi.archive_time = datetime.utcnow()
+            nodename_removed_in_cc.append(nhi.hostname)
+            continue
+        if nhi.shrink_time is not None:
+            # node in shrinking but still in CC side
+            nodename_on_shrink_in_cc.append(nhi.hostname)
+    
+    cc_nodes_by_array: Dict[str, List[str]] = {}
+    cc_array_by_node: Dict[str, str] = {}
+    for cc_node in cc_nodes:
+        cc_array_by_node[cc_node.hostname] = cc_node.nodearray
+        if not ci_in(cc_node.delayed_node_id.node_id, [nhi.node_id for nhi in node_history.active_items]):
+            # Insert the node first seen
+            node_history.insert(HpcNodeItem(cc_node.delayed_node_id.node_id, cc_node.hostname))
+        if cc_node.nodearray not in cc_nodes_by_array:
+            cc_nodes_by_array[cc_node.nodearray] = [cc_node.hostname]
+        else:
+            cc_nodes_by_array[cc_node.nodearray].append(cc_node.hostname)
+
+    cc_nodearrays = set([b.nodearray for b in node_mgr.get_buckets()])
+    logging.info("Current node arrays in cyclecloud: {}".format(cc_nodearrays))
+    # Get node list and grow decision from HPC Pack
+    # Possible values for HPC NodeHealth: 
+    #   OK, Warning, Error, Transitional, Unapproved
+    # Possible values for HPC NodeState (states marked with * shall not occur for CC nodes):
+    #   Unknown, Provisioning, Offline, Starting, Online, Draining, Rejected(*), Removing, NotDeployed(*), Stopping(*) 
+    # For node already removed from CC (Unreachable nodes in CycleCloudNodes also considered as already removed in CC):
+    #   1. If the current state is a stable state, directly remove
+    #   2. If the current state is *ing, do nothing in this round, wait it to go into stable state
+    # For shrinking node:
+    #   1. If the current state is unknown or offline, directly remove
+    #   2. If the current state is online, we shall take offline
+    #   3. if neither of above, it must be draining, do nothing in this round, wait it to go into offline
+    # For other HPC node which has corresponding CC node: 
+    #   1. If the current state is offline, bring it online
+    #   2. If the current state if Unknown
+    hpc_node_groups = hpcpack_rest_client.list_node_groups()
+    grow_decisions = hpcpack_rest_client.get_grow_decision()
+    logging.info("grow decision: {}".format(grow_decisions))
+    hpc_nodes = hpcpack_rest_client.list_nodes(include_details=True, filters={"nodeGroup":"ComputeNodes"})
+    hpc_cn_nodes = [n for n in hpc_nodes if not ci_interset(["HeadNodes", "WCFBrokerNodes"], n["Groups"])]
+    hpc_cn_nodes = [n for n in hpc_cn_nodes if not ci_in(n["NodeState"], ["Rejected", "NotDeployed", "Stopping", "Removing"])]
+    hpc_nodes_to_remove = []
+    hpc_nodes_to_bring_online = []
+    hpc_nodes_to_take_offline = []
+    hpc_nodes_to_assign_template = []
+    for hpc_node in hpc_cn_nodes:
+        if ci_in(hpc_node["Name"], nodename_removed_in_cc) or (ci_in("CycleCloudNodes", hpc_node["Groups"]) and ci_equals(hpc_node["NodeHealth"], "Error")):
+            if ci_in(hpc_node["NodeState"], ["Unknown", "Online", "Offline"]):
+                hpc_nodes_to_remove.append(hpc_node["Name"])
+            continue
+        if ci_in(hpc_node["Name"], nodename_on_shrink_in_cc):
+            if ci_in(hpc_node["NodeState"], ["Unknown", "Offline"]):
+                hpc_nodes_to_remove.append(hpc_node["Name"])
+            elif ci_equals(hpc_node["NodeState"], "Online"):
+                hpc_nodes_to_take_offline.append(hpc_node["Name"])
+            continue
+        if ci_in(hpc_node["Name"], cc_hostnames):            
+            if ci_equals(hpc_node["NodeState"], "Offline"):
+                hpc_nodes_to_bring_online.append(hpc_node["Name"])
+            if ci_equals(hpc_node["NodeState"], "Unknown"):
+                hpc_nodes_to_assign_template.append(hpc_node["Name"])
+
+    cc_map_hpc_groups = ["CycleCloudNodes"] + list(cc_nodearrays)
+    for cc_grp in cc_map_hpc_groups:
+        if not ci_in(cc_grp, hpc_node_groups):
+            logging.info("Create HPC node group: {}".format(cc_grp))
+            hpcpack_rest_client.add_node_group(cc_grp, "Cycle Cloud Node group")
+
+    if len(hpc_nodes_to_bring_online) > 0:
+        logging.info("Bringing the HPC nodes online: {}".format(hpc_nodes_to_bring_online))
+        if dry_run:
+            logging.info("Dry-run: no real action")
+        else:
+            hpcpack_rest_client.bring_nodes_online(hpc_nodes_to_bring_online)
+    if len(hpc_nodes_to_remove) > 0:
+        logging.info("Removing the HPC nodes: {}".format(hpc_nodes_to_remove))
+        if dry_run:
+            logging.info("Dry-run: no real action")
+        else:
+            hpcpack_rest_client.remove_nodes(hpc_nodes_to_remove)
+    if len(hpc_nodes_to_take_offline) > 0:
+        logging.info("Taking the HPC nodes offline: {}".format(hpc_nodes_to_take_offline))
+        if dry_run:
+            logging.info("Dry-run: no real action")
+        else:
+            hpcpack_rest_client.take_nodes_offline(hpc_nodes_to_take_offline)
+    if len(hpc_nodes_to_assign_template) > 0:
+        logging.info("Assigning default node template for the HPC nodes: {}".format(hpc_nodes_to_assign_template))
+        if dry_run:
+            logging.info("Dry-run: no real action")
+        else:
+            hpcpack_rest_client.assign_default_compute_node_template(hpc_nodes_to_assign_template)
+    
+    left_hpc_nodes_in_cc = [n for n in hpc_cn_nodes if not ci_in(n["Name"], hpc_nodes_to_remove)]
+    for cc_grp in cc_map_hpc_groups:
+        nodes = [n["Name"] for n in left_hpc_nodes_in_cc if not ci_in(cc_grp, n["Groups"])]
+        if len(nodes) > 0:
+            logging.info("Adding HPC nodes to node group {}: {}".format(cc_grp, nodes))
+            hpcpack_rest_client.add_node_to_node_group(cc_grp, nodes)
+
+    if len(nodename_on_shrink_in_cc) > 0:
+        shutdown_cc_nodes = [n for n in nodename_on_shrink_in_cc if not ci_in(n, [n["Name"] for n in left_hpc_nodes_in_cc])]
+        if len(shutdown_cc_nodes) > 0:
+            logging.info("Shut down the following Cycle cloud node: {}".format(shutdown_cc_nodes))
+            if dry_run:
+                logging.info("Dry-run: skip ...")
+            else:
+                node_mgr.shutdown_nodes([n for n in cc_nodes if ci_in(n.hostname, shutdown_cc_nodes)])
+
+    ### Start scale up checking:
+    logging.info("Start scale up checking ...")
     if ctx_handler:
         ctx_handler.set_context("[scale-up]")
 
-    logging.info("Scaling up...")
-    target_counts = get_target_counts(config, hpcpack_rest_client)
-    logging.info("grow decision: {}".format(target_counts))
-    node_mgr = new_node_manager(config['cyclecloud'])
+    # Exclude the already online HPC nodes before calling node_mgr.allocate
+    online_healthy_hpc_nodes = [n["Name"] for n in hpc_cn_nodes if ci_equals(n["NodeState"], "Online") and ci_equals(n["NodeHealth"], "OK")]
+    for cn in cc_nodes:
+        if ci_in(cn.hostname, online_healthy_hpc_nodes) and ci_in(cn.hostname, nodename_on_shrink_in_cc):
+            cn.closed = True    
 
-    for group, grow_decision in target_counts.items():
-        group =  group.lower()
+    # "ComputeNodes", "CycleCloudNodes", "AzureIaaSNodes" are all treated as default
+    # grow_by_socket not supported yet, treat as grow_by_node
+    defaultGroups = ["Default", "ComputeNodes", "AzureIaaSNodes", "CycleCloudNodes"]
+    default_cores_to_grow = default_nodes_to_grow = 0.0
 
-        # TODO: Nodearray name should be derived from group name...
-        # nodearray_names = config.nodearray_names(group)
-        nodearray_names = ['cn']
-
-        # WARNING: Specify ncpus or all  jobs will be packed on 1 node!
-        selector =  {'ncpus': 1}
-        if len(nodearray_names):
-            selector["node.nodearray"] = nodearray_names
-        else:
-            logging.info("No current growth targets.")
-            return
-
-        target_cores = math.ceil(grow_decision.cores_to_grow)
-        target_nodes = math.ceil(grow_decision.nodes_to_grow)
-        if group in config['min_counts']:
-            # Maintain min count
-            target_nodes = max(config['min_counts'][group], target_nodes)
-
-        if target_cores:
-            logging.info("Array: {}  Target Cores: {}".format(selector, target_cores))
-            result = node_mgr.allocate(selector, slot_count=target_cores)
-            logging.info(result)
+    # If the current CC nodes in the node array cannot satisfy the grow decision, the group is hungry
+    # For a hungry group, no idle check is required if the node health is OK
+    group_hungry: Dict[str, bool] = {}
+    nbrNewNodes: int = 0
+    grow_groups = list(grow_decisions.keys())
+    for grp in grow_groups:
+        tmp = grow_decisions.pop(grp)
+        if not (tmp.cores_to_grow + tmp.nodes_to_grow + tmp.sockets_to_grow):
+            continue
+        if ci_in(grp, defaultGroups):
+            default_cores_to_grow += tmp.cores_to_grow
+            default_nodes_to_grow += tmp.nodes_to_grow + tmp.sockets_to_grow
+            continue
+        if not ci_in(grp, cc_nodearrays):
+            logging.warning("No mapping node array for the grow requirement {}:{}".format(grp, grow_decisions[grp]))
+            grow_decisions.pop(grp)
+            continue
+        group_hungry[grp] = False
+        array = ci_lookup(grp, cc_nodearrays)
+        selector =  {'ncpus': 1, 'node.nodearray':[array]}
+        target_cores = math.ceil(tmp.cores_to_grow)
+        target_nodes = math.ceil(tmp.nodes_to_grow + tmp.sockets_to_grow)
         if target_nodes:
-            logging.info("Array: {}  Target Nodes: {}".format(selector, target_nodes))
+            logging.info("Allocate: {}  Target Nodes: {}".format(selector, target_nodes))
             result = node_mgr.allocate(selector, node_count=target_nodes)
             logging.info(result)
+            if not result or result.total_slots < target_nodes:
+                group_hungry[grp] = True
+        if target_cores:
+            logging.info("Allocate: {}  Target Cores: {}".format(selector, target_cores))
+            result = node_mgr.allocate(selector, slot_count=target_cores)
+            logging.info(result)
+            if not result or result.total_slots < target_cores:
+                group_hungry[grp] = True
+        if len(node_mgr.new_nodes) > nbrNewNodes:
+            group_hungry[grp] = True
+        nbrNewNodes = len(node_mgr.new_nodes)
 
-    logging.info("Allocating {} nodes in total".format(len(node_mgr.new_nodes)))
-    logging.info("Allocating {} nodes in total".format(len(node_mgr.new_nodes)))
-    if dry_run:
-        logging.info("Dry-run: skipping node bootup...")        
-        return
-     
-    bootup_result = node_mgr.bootup()
-    logging.info(bootup_result)
-    return bootup_result
+    # We then check the grow decision for the default node groups:
+    checkShrinkNeeded = True
+    growForDefaultGroup = True if default_nodes_to_grow or default_cores_to_grow else False
+    if growForDefaultGroup:
+        selector = {'ncpus': 1}
+        if default_nodes_to_grow:
+            target_nodes = math.ceil(default_nodes_to_grow)
+            logging.info("Allocate: {}  Target Nodes: {}".format(selector, target_nodes))
+            result = node_mgr.allocate({'ncpus': 1}, node_count=target_nodes)
+            if not result or result.total_slots < target_nodes:
+                checkShrinkNeeded = False
+        if default_cores_to_grow:
+            target_cores = math.ceil(default_cores_to_grow)
+            logging.info("Allocate: {}  Target Cores: {}".format(selector, target_cores))
+            result = node_mgr.allocate({'ncpus': 1}, slot_count=target_cores)
+            if not result or result.total_slots < target_cores:
+                checkShrinkNeeded = False
+        if len(node_mgr.new_nodes) > nbrNewNodes:
+            checkShrinkNeeded = False
+        nbrNewNodes = len(node_mgr.new_nodes)
 
-def shutdown_nodes(config: Dict[str, Any], 
-    eligible_nodes: List[str]
-) -> ShutdownResult:
-    if eligible_nodes:
-        logging.info("Scaling down nodes: {}".format(eligible_nodes))
-        node_mgr = new_node_manager(config['cyclecloud'])
-
-        nodes = [ n for n in node_mgr.get_nodes() if n.hostname in eligible_nodes ]
-        logging.debug("Filtered nodes: {}".format(nodes))
-        return node_mgr.shutdown_nodes(nodes)
+    if nbrNewNodes > 0:
+        logging.info("Need to Allocate {} nodes in total".format(nbrNewNodes))
+        if dry_run:
+            logging.info("Dry-run: skipping node bootup...")
+        else:
+            logging.info("Allocating {} nodes in total".format(len(node_mgr.new_nodes)))            
+            bootup_result = node_mgr.bootup()
+            logging.info(bootup_result)
     else:
-        return None
+        logging.info("No need to allocate new nodes ...")
 
-def load_cluster_manager_state(config: Dict[str, Any],
-    manager: HpcClusterManager
-) -> None:
-
-    statefile = config.get('statefile')
-    if os.path.exists(statefile):
-        try: 
-            pickled_state = {}
-            with open(statefile, 'r') as f:
-                pickled_state = f.read()
-            logging.debug("Restoring Manager state: {}".format(pickled_state))
-            manager.unpickle(pickled_state)
-        except:
-            logging.exception("Failed to re-load autoscaler state from {}...".format(statefile))
-
-    # Load pre-existing nodes into manager
-    node_mgr = new_node_manager(config['cyclecloud'])
-    all_nodes = node_mgr.get_nodes()
-    for node in all_nodes:
-        # Wait for node to get assigned a hostname and node id
-        if node.hostname and node.delayed_node_id:
-            manager.add_slaveinfo(node.hostname, node.delayed_node_id.node_id, node.vcpu_count, last_heartbeat=None)
-
-def store_cluster_manager_state(config: Dict[str, Any], 
-    manager: HpcClusterManager
-) -> None:
-
-    statefile = config.get('statefile')
-    try:
-        with open(statefile, 'w') as f:
-            f.write(manager.pickle())
-    except:
-        logging.warning("Failed to store autoscaler state to {}...".format(statefile))
-
-def manage_cluster(cconfig: Dict[str, Any],
-    hpcpack_rest_client: Optional[HpcRestClient] = None,
-    ctx_handler: DefaultContextHandler = None,
-    dry_run: bool = False,
-) -> ShutdownResult:
-
-    default_node_group = "ComputeNodes"
-    autoscale_config = config.get('autoscale') or {}
-    provisioning_timeout_secs = autoscale_config.get('provisioning_timeout') or CONFIG_DEFAULTS['autoscale']['provisioning_timeout']
-    idle_timeout_secs = autoscale_config.get('idle_time_after_jobs') or CONFIG_DEFAULTS['autoscale']['idle_time_after_jobs']
-
-    provisioning_timeout = timedelta(seconds=provisioning_timeout_secs)
-    idle_timeout = timedelta(seconds=idle_timeout_secs)
-    manager = HpcClusterManager(config, hpcpack_rest_client, provisioning_timeout=provisioning_timeout, 
-                                idle_timeout=idle_timeout, 
-                                node_group=default_node_group)
-
-    if ctx_handler:
-        ctx_handler.set_context("[hpcpack-state]")
-
-    # Reload manager state
-    load_cluster_manager_state(config, manager)
-
-    # Post-autostart provisioning and Autostop statemachine
-    manager.configure_cluster()    
-    nodes_to_shutdown = manager.check_deleted_nodes()
-
+    ### Start the shrink checking
     if ctx_handler:
         ctx_handler.set_context("[scale-down]")
 
-    if dry_run:
-        logging.info("Dry-run: skipping node termination...")
-    else:
-        shutdown_result = shutdown_nodes(config, nodes_to_shutdown)
+    if not checkShrinkNeeded:
+        logging.info("No shrink check at this round ...")
+        if not dry_run:
+            for nhi in node_history.active_items:
+                if nhi.shrink_time is None:
+                    nhi.idle_from = None
+            node_history.save()   
+        return
+    logging.info("Start scale down checking ...")
+    # By default, we check idle for all CC nodes in HPC Pack with 'Offline', 'Starting', 'Online', 'Draining' state
+    idle_check_hpc_nodes = [n for n in hpc_cn_nodes if ci_in(n["NodeState"], ["Offline", "Starting", "Online", "Draining"]) and ci_in(n["Name"], cc_hostnames)]
 
-    # Store updated manager state
-    store_cluster_manager_state(config, manager)
-    return shutdown_result
-    
+    # We can exclude some nodes from idle checking:
+    # 1. If HPC Pack ask for grow in default node group(s), all healthy ONLINE nodes are considered as busy
+    # 2. If HPC Pack ask for grow in certain node group, all healthy ONLINE nodes in that node group are considered as busy
+    # 3. If a node group is hungry (new CC required or grow request not satisfied), no idle check needed for all nodes in that node array
+    if growForDefaultGroup:
+        idle_check_hpc_nodes = [n for n in idle_check_hpc_nodes if not (ci_equals(n["NodeState"], "Online") and ci_equals(n["NodeHealth"], "OK"))]
+    for grp, hungry in group_hungry.items():
+        if hungry:
+            idle_check_hpc_nodes = [n for n in idle_check_hpc_nodes if not ci_in(grp, n["Groups"])]
+        elif not growForDefaultGroup:
+            idle_check_hpc_nodes = [n for n in idle_check_hpc_nodes if not (ci_equals(n["NodeState"], "Online") and ci_equals(n["NodeHealth"], "OK") and ci_in(grp, n["Groups"]))]
 
+    curtime = datetime.utcnow()
+    idle_node_names = []
+    if len(idle_check_hpc_nodes) > 0:
+        idle_nodes = hpcpack_rest_client.check_nodes_idle([n["Name"] for n in idle_check_hpc_nodes])
+        if len(idle_nodes) > 0:
+            idle_node_names = [n.node_name for n in idle_nodes]
+            logging.info("The following node is idle: {}".format(idle_node_names))
+        else:
+            logging.info("No idle node found in this round.")
+
+    idle_time_seconds:int = config["autoscale"]["idle_time_after_jobs"] or 900
+    new_shrink_node = []
+    for nhi in node_history.active_items:
+        if nhi.shrink_time is not None:
+            continue
+        if ci_in(nhi.hostname, idle_node_names):
+            if nhi.idle_from is None:
+                nhi.idle_from = curtime
+            elif nhi.shrink_time is None and (nhi.idle_from + timedelta(seconds=idle_time_seconds) < curtime):
+                nhi.shrink_time = curtime
+                new_shrink_node.append(nhi.hostname)
+        else:
+            nhi.idle_from = None
+    if len(new_shrink_node) > 0:
+        logging.info("The following nodes will be shrinked: {}".format(new_shrink_node))
+        if dry_run:
+            logging.info("Dry-run: skip ...")
+        else:
+            node_mgr.shutdown_nodes([n for n in cc_nodes if ci_in(n.hostname, new_shrink_node)])
+            hpcpack_rest_client.remove_nodes(new_shrink_node)
+        
+    if not dry_run:
+        logging.info("Save node history: {}".format(node_history))
+        node_history.save()
+
+  
 def load_config_defaults_from_jetpack() -> None:
     jetpack_cmd = 'C:\cycle\jetpack\system\Bin\jetpack_wrapper.cmd'
     if not os.path.exists(jetpack_cmd):
         return
     
-    try:        
+    try:
+        autoscale_enabled = check_output([jetpack_cmd, "config", 'cyclecloud.cluster.autoscale.start_enabled']).strip().decode()
+        autoscale_idle_time_after_jobs = check_output([jetpack_cmd, "config", 'cyclecloud.cluster.autoscale.idle_time_after_jobs']).strip().decode()
         cluster_name = check_output([jetpack_cmd, "config", 'cyclecloud.cluster.name']).strip().decode()
         url = check_output([jetpack_cmd, "config", 'cyclecloud.config.web_server']).strip().decode()
         password = check_output([jetpack_cmd, "config", 'cyclecloud.config.password']).strip().decode()
         username = check_output([jetpack_cmd, "config", 'cyclecloud.config.username']).strip().decode()
+
 
         global CONFIG_DEFAULTS
         CONFIG_DEFAULTS['cyclecloud']['cluster_name'] = cluster_name
         CONFIG_DEFAULTS['cyclecloud']['url'] = url
         CONFIG_DEFAULTS['cyclecloud']['password'] = password
         CONFIG_DEFAULTS['cyclecloud']['username'] = username
+        CONFIG_DEFAULTS['autoscale']['start_enabled'] = ci_equals(autoscale_enabled, "True")
+        CONFIG_DEFAULTS['autoscale']['idle_time_after_jobs'] = int(autoscale_idle_time_after_jobs)
     except CalledProcessError:
         logging.warning("Failed to get cluster configuration from jetpack...")
 
-def load_autoscaler_config(config_file: str
+def load_autoscaler_config(
+    config_file: str
 ) -> Dict[str, Any]:
 
     from_file = {}
@@ -242,31 +382,14 @@ def load_autoscaler_config(config_file: str
     
     return config
 
-def new_rest_client(config: Dict[str, Any]
+def new_rest_client(
+    config: Dict[str, Any]
 ) -> HpcRestClient:
 
     hpcpack_config = config.get('hpcpack') or {}    
     hpc_pem_file = hpcpack_config.get('pem') or CONFIG_DEFAULTS['hpcpack']['pem']
     hn_hostname = hpcpack_config.get('hn_hostname') or CONFIG_DEFAULTS['hpcpack']['hn_hostname']
     return HpcRestClient(config, pem=hpc_pem_file, hostname=hn_hostname)
-
-def autoscale_hpcpack(config: Dict[str, Any],
-    ctx_handler: DefaultContextHandler = None,
-    hpcpack_rest_client: Optional[HpcRestClient] = None,
-    dry_run: bool = False,
-) -> BootupResult:
-
-    if not hpcpack_rest_client:
-        hpcpack_rest_client = new_rest_client(config)
-
-    logging.info("Checking running nodes and autostop if needed...")
-    manage_cluster(config, hpcpack_rest_client, ctx_handler, dry_run)
-
-    if ctx_handler:
-        ctx_handler.set_context("[scale-up]")
-    logging.info("Checking growth targets and autostarting if needed...")    
-    return scale_up(config, hpcpack_rest_client, ctx_handler, dry_run)
-    
 
 if __name__ == "__main__":
 
@@ -276,12 +399,12 @@ if __name__ == "__main__":
 
     dry_run = False
     if len(sys.argv) > 2:
-        dry_run = sys.argv[2].lower() in ['true', 'dryrun']
+        dry_run = ci_in(sys.argv[2], ['true', 'dryrun'])
 
     ctx_handler = register_result_handler(DefaultContextHandler("[initialization]"))
-    
-
     config = load_autoscaler_config(config_file)
-    logging.initialize_logging(config) 
-
-    autoscale_hpcpack(config, ctx_handler=ctx_handler, dry_run=dry_run)
+    logging.initialize_logging(config)
+    if config["autoscale"]["start_enabled"]:
+        autoscale_hpcpack(config, ctx_handler=ctx_handler, dry_run=dry_run)
+    else:
+        logging.info("Autoscaler is not enabled")

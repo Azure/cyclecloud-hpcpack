@@ -39,5 +39,5 @@ if (-not (Test-Path "$AUTOSCALER_VENV")) {
 # Powershell will interpret stderr output as an error, so redirect
 # https://stackoverflow.com/questions/2095088/error-when-calling-3rd-party-executable-from-powershell-when-using-an-ide
 
-& python -m cyclecloud-hpcpack.autoscaler 2>&1 | %{ "$_" }
+& python -m cyclecloud-hpcpack.autoscaler
 "@ > $JETPACK_BIN\azcc_autoscale.ps1
