@@ -21,7 +21,7 @@ end
 
 
 # Set the cycle instance Id in environment variable CCP_LOGROOT_USR
-windows_env 'CCP_LOGROOT_USR' do
+env 'CCP_LOGROOT_USR' do
   value "%LOCALAPPDATA%\\Microsoft\\Hpc\\LogFiles\\"
   only_if '$null -eq (Get-Service "HpcManagement" -ErrorAction SilentlyContinue)'
 end

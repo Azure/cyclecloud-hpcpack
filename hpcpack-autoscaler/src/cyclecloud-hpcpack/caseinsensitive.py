@@ -13,6 +13,9 @@ def ci_in(a:str, b:Union[List[str], Set[str], Dict[str, Any]]) -> bool:
             return True
     return False
 
+def ci_notin(a:str, b:Union[List[str], Set[str], Dict[str, Any]]) -> bool:
+    return not ci_in(a, b)
+
 def ci_lookup(a:str, b:Union[List[str], Set[str]]) -> Optional[str]:
     for c in b:
         if ci_equals(a, c):

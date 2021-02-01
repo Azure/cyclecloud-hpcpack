@@ -13,17 +13,24 @@ class HpcNodeItem:
         self.node_id = node_id
         self.hostname = hostname
         self.emerge_time = datetime.utcnow()
+        self.start_time = datetime.utcnow()
         self.idle_from: Optional[datetime] = None
         self.shrink_time: Optional[datetime] = None
         self.archive_time: Optional[datetime] = None
 
+    def provision_timeout(self, timeout: int = 1500):
+        return self.start_time + timedelta(seconds=timeout) < datetime.utcnow()
+
+    def idle_timeout(self, timeout: int = 900):
+        return self.idle_from + timedelta(seconds=timeout) < datetime.utcnow()
+
     def __str__(self) -> str:
-        return "HpcNodeItem(node_id={}, hostname={}, emerge_time={}, idle_from={}, shrink_time={})".format(
-            self.node_id, self.hostname, self.emerge_time, self.idle_from, self.shrink_time)
+        return "HpcNodeItem(node_id={}, hostname={}, emerge_time={}, start_time={}, idle_from={}, shrink_time={})".format(
+            self.node_id, self.hostname, self.emerge_time, self.start_time, self.idle_from, self.shrink_time)
     
     def __repr__(self) -> str:
-        return "HpcNodeItem(node_id={}, hostname={}, emerge_time={}, idle_from={}, shrink_time={})".format(
-            self.node_id, self.hostname, self.emerge_time, self.idle_from, self.shrink_time)
+        return "HpcNodeItem(node_id={}, hostname={}, emerge_time={}, start_time={}, idle_from={}, shrink_time={})".format(
+            self.node_id, self.hostname, self.emerge_time, self.start_time, self.idle_from, self.shrink_time)
 
 class HpcNodeHistory:
     def __init__(

@@ -8,7 +8,7 @@ from requests.exceptions import HTTPError
 from typing import Any, Dict, Iterable, List, NamedTuple, Optional
 
 import hpc.autoscale.hpclogging as logging
-from .caseinsensitive import ci_equals, ci_in
+from .caseinsensitive import ci_equals, ci_in, ci_interset
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -137,6 +137,10 @@ class HpcRestClient:
         if not include_headnode:
             nodesjs = [node for node in nodesjs if node["Name"].lower() != self.hostname.lower()]
         return nodesjs
+
+    def list_computenodes(self) -> List[Any]:
+        nodes = self.list_nodes(include_details=True, filters={"nodeGroup":"ComputeNodes"})
+        return [n for n in nodes if not ci_interset(["HeadNodes", "WCFBrokerNodes"], n["Groups"])]
 
     def list_idle_nodes(
         self, 
