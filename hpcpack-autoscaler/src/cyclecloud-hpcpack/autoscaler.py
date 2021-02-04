@@ -6,13 +6,13 @@ from typing import Any, Dict, List, Optional
 from datetime import datetime
 from subprocess import check_output, CalledProcessError
 import hpc.autoscale.hpclogging as logging
-from hpc.autoscale.node.nodemanager import new_node_manager
+from hpc.autoscale.node.node import Node
+from hpc.autoscale.node.nodemanager import NodeManager, new_node_manager
 from hpc.autoscale.results import DefaultContextHandler, register_result_handler, BootupResult, ShutdownResult
-
-
-from .restclient import HpcRestClient, GrowDecision
-from .caseinsensitive import ci_equals, ci_in, ci_notin, ci_interset, ci_lookup
-from .hpcnodehistory import HpcNodeHistory, HpcNodeItem
+from hpc.autoscale.util import partition
+from .hpcpackdriver import HpcRestClient, GrowDecision
+from .commonutil import ci_equals, ci_in, ci_notin, ci_interset, ci_lookup, make_dict, make_dict_single
+from .hpcnodehistory import HpcNodeHistory
 
 CONFIG_DEFAULTS = {
     "logging": {
@@ -56,64 +56,32 @@ def autoscale_hpcpack(
     if ctx_handler:
         ctx_handler.set_context("[Sync-Status]")
     autoscale_config = config.get("autoscale") or {}
+    # Load history info
+    idle_timeout_seconds:int = autoscale_config.get("idle_time_after_jobs") or 900    
+    provisioning_timeout_seconds = autoscale_config.get("provisioning_timeout") or 1500
+    node_history = HpcNodeHistory(statefile="C:\\cycle\\hpcpack-autoscaler\\state.txt", provisioning_timeout=provisioning_timeout_seconds, idle_timeout=idle_timeout_seconds)
+
     logging.info("Synchronizing the nodes between Cycle cloud and HPC Pack")
     # Initialize data of History info, cc nodes, HPC Pack nodes, HPC grow decisions
-    # Load history info
-    node_history = HpcNodeHistory("C:\\cycle\\hpcpack-autoscaler\\state.txt")
     # Get node list from Cycle Cloud
-    node_mgr = new_node_manager(config['cyclecloud'])
+    node_mgr: NodeManager = new_node_manager(config['cyclecloud'])
+    cc_nodes:List[Node] = node_mgr.get_nodes()
+    cc_active_node_ids = [n.delayed_node_id.node_id for n in cc_nodes]
     # We only need CC nodes with host name when syncing nodes between CC and HPCPack
-    cc_nodes = [n for n in node_mgr.get_nodes() if n.hostname]
-    cc_hostnames = [n.hostname for n in cc_nodes]
-    cc_node_ids = [n.delayed_node_id.node_id for n in cc_nodes]
+    cc_nodes_with_hostname = [n for n in cc_nodes if n.hostname]
+    cc_hostnames = [n.hostname for n in cc_nodes_with_hostname]
     # Get compute node list and grow decision from HPC Pack
     hpc_node_groups = hpcpack_rest_client.list_node_groups()
     grow_decisions = hpcpack_rest_client.get_grow_decision()
     logging.info("grow decision: {}".format(grow_decisions))
     hpc_cn_nodes = hpcpack_rest_client.list_computenodes()
-    hpc_cn_nodes = [n for n in hpc_cn_nodes if ci_notin(n["NodeState"], ["Rejected", "NotDeployed", "Stopping", "Removing"])]
-    hpc_cn_nodenames = [n["Name"] for n in hpc_cn_nodes]
+    hpc_cn_nodes = [n for n in hpc_cn_nodes if n.active]
 
-    # CC
-    provisioning_timeout = autoscale_config.get("provisioning_timeout") or 1500
-    nodename_removed_in_cc = []
-    nodename_on_shrink_in_cc = []
-    for nhi in node_history.active_items:
-        if ci_notin(nhi.node_id, cc_node_ids):
-            # node already removed in CC side
-            logging.info("{} is out-dated".format(nhi))
-            nhi.archive_time = datetime.utcnow()
-            nodename_removed_in_cc.append(nhi.hostname)
-            continue
-        if ci_notin(nhi.hostname, cc_hostnames):
-            # should not happen
-            logging.warning("hostname changed for {}".format(nhi))
-            nhi.archive_time = datetime.utcnow()
-            nodename_removed_in_cc.append(nhi.hostname)
-            continue
-        if ci_notin(nhi.hostname, hpc_cn_nodenames) and nhi.provision_timeout(provisioning_timeout):
-            # The CC node not shown in HPC side for a long time, we shall remove it
-            nhi.shrink_time = datetime.utcnow()
-        if nhi.shrink_time is not None:
-            # node in shrinking but still in CC side
-            nodename_on_shrink_in_cc.append(nhi.hostname)
-    
-    cc_nodes_by_array: Dict[str, List[str]] = {}
-    cc_array_by_node: Dict[str, str] = {}
-    for cc_node in cc_nodes:
-        cc_array_by_node[cc_node.hostname] = cc_node.nodearray
-        if ci_notin(cc_node.delayed_node_id.node_id, [nhi.node_id for nhi in node_history.active_items]):
-            # Insert the node first seen
-            node_history.insert(HpcNodeItem(cc_node.delayed_node_id.node_id, cc_node.hostname))
-        if cc_node.nodearray not in cc_nodes_by_array:
-            cc_nodes_by_array[cc_node.nodearray] = [cc_node.hostname]
-        else:
-            cc_nodes_by_array[cc_node.nodearray].append(cc_node.hostname)
+    # This function will link node history items, cc nodes and hpc nodes
+    node_history.synchronize(cc_nodes, hpc_cn_nodes)
 
     cc_nodearrays = set([b.nodearray for b in node_mgr.get_buckets()])
     logging.info("Current node arrays in cyclecloud: {}".format(cc_nodearrays))
-    # Possible values for HPC NodeHealth: 
-    #   OK, Warning, Error, Transitional, Unapproved
     # Possible values for HPC NodeState (states marked with * shall not occur for CC nodes):
     #   Unknown, Provisioning, Offline, Starting, Online, Draining, Rejected(*), Removing, NotDeployed(*), Stopping(*) 
     # For node already removed from CC (Unreachable nodes in CycleCloudNodes also considered as already removed in CC):
@@ -126,33 +94,48 @@ def autoscale_hpcpack(
     # For other HPC node which has corresponding CC node: 
     #   1. If the current state is offline, bring it online
     #   2. If the current state if Unknown
+    cc_nodeid_to_shrink = []
     hpc_nodes_to_remove = []
     hpc_nodes_to_bring_online = []
     hpc_nodes_to_take_offline = []
     hpc_nodes_to_assign_template = []
     for hpc_node in hpc_cn_nodes:
-        if ci_in(hpc_node["Name"], nodename_removed_in_cc) or (ci_in("CycleCloudNodes", hpc_node["Groups"]) and ci_equals(hpc_node["NodeHealth"], "Error")):
-            if ci_in(hpc_node["NodeState"], ["Unknown", "Online", "Offline"]):
-                hpc_nodes_to_remove.append(hpc_node["Name"])
+        if hpc_node.transitioning:
             continue
-        if ci_in(hpc_node["Name"], nodename_on_shrink_in_cc):
-            if ci_in(hpc_node["NodeState"], ["Unknown", "Offline"]):
-                hpc_nodes_to_remove.append(hpc_node["Name"])
-            elif ci_equals(hpc_node["NodeState"], "Online"):
-                hpc_nodes_to_take_offline.append(hpc_node["Name"])
+        if hpc_node.to_remove:
+            hpc_nodes_to_remove.append(hpc_node.name)
             continue
-        if ci_in(hpc_node["Name"], cc_hostnames):            
-            if ci_equals(hpc_node["NodeState"], "Offline"):
-                hpc_nodes_to_bring_online.append(hpc_node["Name"])
-            if ci_equals(hpc_node["NodeState"], "Unknown"):
-                hpc_nodes_to_assign_template.append(hpc_node["Name"])
+        if hpc_node.to_shrink:
+            if ci_equals(hpc_node.state, "Online"):
+                hpc_nodes_to_take_offline.append(hpc_node.name)
+            else:
+                hpc_nodes_to_remove.append(hpc_node.name)
+                cc_nodeid_to_shrink.append(hpc_node.cc_node_id)
+            continue
+        if hpc_node.cc_node:
+            if ci_equals(hpc_node.state, "Offline"):
+                hpc_nodes_to_bring_online.append(hpc_node.name)
+            if ci_equals(hpc_node.state, "Unknown"):
+                hpc_nodes_to_assign_template.append(hpc_node.name)
 
+    # Create HPC node groups for CC node arrays
     cc_map_hpc_groups = ["CycleCloudNodes"] + list(cc_nodearrays)
     for cc_grp in cc_map_hpc_groups:
         if ci_notin(cc_grp, hpc_node_groups):
             logging.info("Create HPC node group: {}".format(cc_grp))
             hpcpack_rest_client.add_node_group(cc_grp, "Cycle Cloud Node group")
 
+    # Add HPC nodes into corresponding node groups
+    add_cc_tag_nodes = [n.name for n in hpc_cn_nodes if n.shall_addcyclecloudtag]
+    if len(add_cc_tag_nodes) > 0:
+        logging.info("Adding HPC nodes to node group CycleCloudNodes: {}".format(add_cc_tag_nodes))
+        hpcpack_rest_client.add_node_to_node_group("CycleCloudNodes", add_cc_tag_nodes)
+    for cc_grp in list(cc_nodearrays):
+        add_array_tag_nodes = [n.name for n in hpc_cn_nodes if n.shall_addnodearraytag and ci_equals(n.cc_nodearray, cc_grp)]
+        if len(add_array_tag_nodes) > 0:
+            logging.info("Adding HPC nodes to node group {}: {}".format(cc_grp, add_array_tag_nodes))
+            hpcpack_rest_client.add_node_to_node_group(cc_grp, add_array_tag_nodes)
+    
     if len(hpc_nodes_to_bring_online) > 0:
         logging.info("Bringing the HPC nodes online: {}".format(hpc_nodes_to_bring_online))
         if dry_run:
@@ -177,23 +160,13 @@ def autoscale_hpcpack(
             logging.info("Dry-run: no real action")
         else:
             hpcpack_rest_client.assign_default_compute_node_template(hpc_nodes_to_assign_template)
-    
-    left_hpc_nodes_in_cc = [n for n in hpc_cn_nodes if ci_notin(n["Name"], hpc_nodes_to_remove)]
-    for cc_grp in cc_map_hpc_groups:
-        nodes = [n["Name"] for n in left_hpc_nodes_in_cc if ci_notin(cc_grp, n["Groups"])]
-        if len(nodes) > 0:
-            logging.info("Adding HPC nodes to node group {}: {}".format(cc_grp, nodes))
-            hpcpack_rest_client.add_node_to_node_group(cc_grp, nodes)
-
-    if len(nodename_on_shrink_in_cc) > 0:
-        # Make sure to remove from HPC Pack side first, so if the shrinking node is still in HPC Pack side, do not remove it
-        shutdown_cc_nodes = [n for n in nodename_on_shrink_in_cc if ci_notin(n, [n["Name"] for n in left_hpc_nodes_in_cc])]
-        if len(shutdown_cc_nodes) > 0:
-            logging.info("Shut down the following Cycle cloud node: {}".format(shutdown_cc_nodes))
-            if dry_run:
-                logging.info("Dry-run: skip ...")
-            else:
-                node_mgr.shutdown_nodes([n for n in cc_nodes if ci_in(n.hostname, shutdown_cc_nodes)])
+    cc_nodeid_to_shrink.extend([cn.delayed_node_id.node_id for cn in cc_nodes if not cn.create_time_remaining])
+    if len(cc_nodeid_to_shrink) > 0:
+        logging.info("Shut down the following Cycle cloud node: {}".format(cc_nodeid_to_shrink))
+        if dry_run:
+            logging.info("Dry-run: skip ...")
+        else:
+            node_mgr.shutdown_nodes([n for n in cc_nodes if ci_in(n.delayed_node_id.node_id, cc_nodeid_to_shrink)])
 
     ### Start scale up checking:
     logging.info("Start scale up checking ...")
@@ -201,9 +174,9 @@ def autoscale_hpcpack(
         ctx_handler.set_context("[scale-up]")
 
     # Exclude the already online HPC nodes before calling node_mgr.allocate
-    online_healthy_hpc_nodes = [n["Name"] for n in hpc_cn_nodes if ci_equals(n["NodeState"], "Online") and ci_equals(n["NodeHealth"], "OK")]
+    exclude_node_ids = [n.cc_node_id for n in hpc_cn_nodes if n.cc_node and (n.ready_for_job or n.to_shrink)]
     for cn in cc_nodes:
-        if ci_in(cn.hostname, online_healthy_hpc_nodes) and ci_in(cn.hostname, nodename_on_shrink_in_cc):
+        if ci_in(cn.hostname, exclude_node_ids):
             cn.closed = True    
 
     # "ComputeNodes", "CycleCloudNodes", "AzureIaaSNodes" are all treated as default
@@ -289,46 +262,45 @@ def autoscale_hpcpack(
         logging.info("No shrink check at this round ...")
         if not dry_run:
             for nhi in node_history.active_items:
-                if nhi.shrink_time is None:
+                if not nhi.stopping_or_stopped:
                     nhi.idle_from = None
             node_history.save()   
         return
     logging.info("Start scale down checking ...")
     # By default, we check idle for all CC nodes in HPC Pack with 'Offline', 'Starting', 'Online', 'Draining' state
-    idle_check_hpc_nodes = [n for n in hpc_cn_nodes if ci_in(n["NodeState"], ["Offline", "Starting", "Online", "Draining"]) and ci_in(n["Name"], cc_hostnames)]
+    idle_check_hpc_nodes = [n for n in hpc_cn_nodes if n.cc_node and ci_in(n.state, ["Offline", "Starting", "Online", "Draining"])]
 
     # We can exclude some nodes from idle checking:
     # 1. If HPC Pack ask for grow in default node group(s), all healthy ONLINE nodes are considered as busy
     # 2. If HPC Pack ask for grow in certain node group, all healthy ONLINE nodes in that node group are considered as busy
     # 3. If a node group is hungry (new CC required or grow request not satisfied), no idle check needed for all nodes in that node array
     if growForDefaultGroup:
-        idle_check_hpc_nodes = [n for n in idle_check_hpc_nodes if not (ci_equals(n["NodeState"], "Online") and ci_equals(n["NodeHealth"], "OK"))]
+        idle_check_hpc_nodes = [n for n in idle_check_hpc_nodes if not n.ready_for_job]
     for grp, hungry in group_hungry.items():
         if hungry:
-            idle_check_hpc_nodes = [n for n in idle_check_hpc_nodes if ci_notin(grp, n["Groups"])]
+            idle_check_hpc_nodes = [n for n in idle_check_hpc_nodes if not ci_equals(grp, n.cc_nodearray)]
         elif not growForDefaultGroup:
-            idle_check_hpc_nodes = [n for n in idle_check_hpc_nodes if not (ci_equals(n["NodeState"], "Online") and ci_equals(n["NodeHealth"], "OK") and ci_in(grp, n["Groups"]))]
+            idle_check_hpc_nodes = [n for n in idle_check_hpc_nodes if not (ci_equals(grp, n.cc_nodearray) and n.ready_for_job)]
 
     curtime = datetime.utcnow()
     idle_node_names = []
     if len(idle_check_hpc_nodes) > 0:
-        idle_nodes = hpcpack_rest_client.check_nodes_idle([n["Name"] for n in idle_check_hpc_nodes])
+        idle_nodes = hpcpack_rest_client.check_nodes_idle([n.name for n in idle_check_hpc_nodes])
         if len(idle_nodes) > 0:
             idle_node_names = [n.node_name for n in idle_nodes]
             logging.info("The following node is idle: {}".format(idle_node_names))
         else:
             logging.info("No idle node found in this round.")
 
-    idle_time_seconds:int = autoscale_config.get("idle_time_after_jobs") or 900
     new_shrink_node = []
     for nhi in node_history.active_items:
-        if nhi.shrink_time is not None:
+        if nhi.stopping_or_stopped:
             continue
         if ci_in(nhi.hostname, idle_node_names):
             if nhi.idle_from is None:
                 nhi.idle_from = curtime
-            elif nhi.shrink_time is None and nhi.idle_timeout(idle_time_seconds):
-                nhi.shrink_time = curtime
+            elif nhi.shall_stop(idle_timeout_seconds):
+                nhi.stop_time = curtime
                 new_shrink_node.append(nhi.hostname)
         else:
             nhi.idle_from = None
@@ -413,6 +385,7 @@ if __name__ == "__main__":
     ctx_handler = register_result_handler(DefaultContextHandler("[initialization]"))
     config = load_autoscaler_config(config_file)
     logging.initialize_logging(config)
+    logging.info("------------------------------------------------------------------------")
     if config["autoscale"]["start_enabled"]:
         autoscale_hpcpack(config, ctx_handler=ctx_handler, dry_run=dry_run)
     else:
