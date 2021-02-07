@@ -176,7 +176,7 @@ def autoscale_hpcpack(
     # Exclude the already online HPC nodes before calling node_mgr.allocate
     exclude_node_ids = [n.cc_node_id for n in hpc_cn_nodes if n.cc_node and (n.ready_for_job or n.to_shrink)]
     for cn in cc_nodes:
-        if ci_in(cn.hostname, exclude_node_ids):
+        if ci_in(cn.delayed_node_id.node_id, exclude_node_ids):
             cn.closed = True    
 
     # "ComputeNodes", "CycleCloudNodes", "AzureIaaSNodes" are all treated as default
@@ -268,7 +268,7 @@ def autoscale_hpcpack(
         return
     logging.info("Start scale down checking ...")
     # By default, we check idle for all CC nodes in HPC Pack with 'Offline', 'Starting', 'Online', 'Draining' state
-    idle_check_hpc_nodes = [n for n in hpc_cn_nodes if n.cc_node and ci_in(n.state, ["Offline", "Starting", "Online", "Draining"])]
+    idle_check_hpc_nodes = [n for n in hpc_cn_nodes if n.cc_node and (not n.to_remove) and (not n.to_shrink) and ci_in(n.state, ["Offline", "Starting", "Online", "Draining"])]
 
     # We can exclude some nodes from idle checking:
     # 1. If HPC Pack ask for grow in default node group(s), all healthy ONLINE nodes are considered as busy

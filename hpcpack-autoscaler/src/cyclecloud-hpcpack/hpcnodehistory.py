@@ -75,7 +75,10 @@ class HpcNodeHistory:
 
     @property
     def archived_items(self) -> List[NodeHistoryItem]:
-        return [i for i in self.__items if i.archived]
+        ret = [i for i in self.__items if i.archived]
+        if len(ret) > 1:
+            ret.sort(reverse=True, key=lambda i: i.archive_time)
+        return ret
 
     # The items recently archived
     @property
@@ -107,7 +110,7 @@ class HpcNodeHistory:
             if ci_equals(n.hostname, hostname):
                 return n
         if include_archived:
-            for n in self.archived_items.sort(reverse=True, key=lambda i: i.archive_time):
+            for n in self.archived_items:
                 if ci_equals(n.hostname, hostname):
                     return n
         return None

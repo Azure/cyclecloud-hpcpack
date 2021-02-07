@@ -57,7 +57,7 @@ class HpcNode:
 
     @property
     def error(self) -> bool:
-        return ci_equals(self.state, "Error")
+        return ci_equals(self.health, "Error")
 
     @property
     def transitioning(self) -> bool:
@@ -146,7 +146,7 @@ class HpcRestClient:
         res = requests.post(url, data=data, headers=headers, verify=False, cert=self._pem)
         try:
             res.raise_for_status()
-            logging.info("{}: {}".format(function_name, str(res.content)))
+            logging.info("{} resp: {}".format(function_name, str(res.content)))
             return res
         except HTTPError:
             logging.error("{}: status_code:{} content:{}".format(function_name, res.status_code, res.content))
