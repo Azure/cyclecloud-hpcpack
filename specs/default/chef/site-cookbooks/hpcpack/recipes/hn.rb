@@ -26,7 +26,7 @@ powershell_script 'Install-HpcSingleHeadNode' do
     $secpasswd = ConvertTo-SecureString '#{node['hpcpack']['ad']['admin']['password']}' -AsPlainText -Force
     $domainCred = New-Object System.Management.Automation.PSCredential ("#{node['hpcpack']['ad']['domain']}\\#{node['hpcpack']['ad']['admin']['name']}", $secpasswd)
     $seccertpasswd = ConvertTo-SecureString '#{node['hpcpack']['cert']['password']}' -AsPlainText -Force
-    #{bootstrap_dir}\\InstallHPCHeadNode.ps1 -ClusterName $env:ComputerName -SetupFilePath "C:\\HPCPack2019\\Setup.exe" -PfxFilePath "#{node['jetpack']['downloads']}\\#{node['hpcpack']['cert']['filename']}" -PfxFilePassword $seccertpasswd -SetupCredential $domainCred
+    #{bootstrap_dir}\\InstallHPCHeadNode.ps1 -ClusterName $env:ComputerName -PfxFilePath "#{node['jetpack']['downloads']}\\#{node['hpcpack']['cert']['filename']}" -PfxFilePassword $seccertpasswd -SetupCredential $domainCred
     EOH
     user "#{node['hpcpack']['ad']['admin']['name']}"
     password "#{node['hpcpack']['ad']['admin']['password']}"

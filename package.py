@@ -10,8 +10,8 @@ from argparse import Namespace
 from subprocess import check_call
 from typing import List, Optional
 
-SCALELIB_VERSION = "0.1.2"
-CYCLECLOUD_API_VERSION = "8.0.1"
+SCALELIB_VERSION = "0.2.0"
+CYCLECLOUD_API_VERSION = "8.1.0"
 
 
 def build_sdist() -> str:
@@ -36,7 +36,8 @@ def get_cycle_libs(args: Namespace) -> List[str]:
         CYCLECLOUD_API_VERSION
     )
 
-    scalelib_url = "https://github.com/Azure/cyclecloud-scalelib/archive/{}.tar.gz".format(
+    #scalelib_url = "https://github.com/Azure/cyclecloud-scalelib/archive/{}.tar.gz".format(
+    scalelib_url = "https://suzhuhpcshare.blob.core.windows.net/testbuilds/cyclecloud-scalelib-{}.tar.gz".format(
         SCALELIB_VERSION
     )
     print("WARNING: \nWARNING: Downloading CycleCloud API tarball from GridEngine Project until first release...\nWARNING: ")

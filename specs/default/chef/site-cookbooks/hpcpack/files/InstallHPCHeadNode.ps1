@@ -1,10 +1,12 @@
-﻿Param
+﻿<#
+    The script to install HPC Pack head node
+    Author :  Microsoft HPC Pack team
+    Version:  1.0
+#>
+Param
 (
     [parameter(Mandatory = $true)]
     [string] $ClusterName,
-
-    [parameter(Mandatory = $true)]
-    [string] $SetupFilePath,
 
     [parameter(Mandatory = $true, ParameterSetName='SSLThumbprint')]
     [string] $SSLThumbprint,
@@ -15,8 +17,17 @@
     [parameter(Mandatory = $true, ParameterSetName='PfxFilePath')]
     [securestring] $PfxFilePassword,
 
+    [parameter(Mandatory = $true, ParameterSetName='KeyVaultCertificate')]
+    [string] $VaultName,
+
+    [parameter(Mandatory = $true, ParameterSetName='KeyVaultCertificate')]
+    [string] $VaultCertName,
+
     [parameter(Mandatory = $true)]
     [System.Management.Automation.PSCredential] $SetupCredential,
+
+    [parameter(Mandatory = $false)]
+    [string] $SetupFilePath = "",
     
     [parameter(Mandatory = $false)]
     [string] $SQLServerInstance = "",
@@ -43,7 +54,7 @@ function AddHPCPshModules
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version latest
-Import-Module $PSScriptRoot\LogUtilities.psm1
+Import-Module $PSScriptRoot\InstallUtilities.psm1
 $logFolder = "C:\Windows\Temp\HPCSetupLogs"
 if(-not (Test-Path $logFolder))
 {
@@ -52,10 +63,40 @@ if(-not (Test-Path $logFolder))
 $logfileName = "installhn-" + [System.DateTimeOffset]::UtcNow.ToString("yyyyMMdd-HHmmss") + ".txt"
 Set-LogFile -Path "$logFolder\$logfileName"
 
+if(-not $SetupFilePath)
+{    
+    if(Test-Path "C:\HPCPack2019\Setup.exe" -PathType Leaf) 
+    {
+        $SetupFilePath = "C:\HPCPack2019\Setup.exe"
+    }
+    elseif (Test-Path "C:\HPCPack2016\Setup.exe" -PathType Leaf) 
+    {
+        $SetupFilePath = "C:\HPCPack2016\Setup.exe"
+    }
+    else
+    {
+        throw "Cannot found HPC Pack setup package"
+    }
+}
+elseif (!(Test-Path -Path $SetupFilePath -PathType Leaf)) 
+{
+    throw "HPC Pack setup package not found: $SetupFilePath"
+}
+
 ### Import the certificate
 if($PsCmdlet.ParameterSetName -eq "PfxFilePath")
 {
-    $pfxCert = Import-PfxCertificate -FilePath $PfxFilePath -Password $PfxFilePassword -CertStoreLocation Cert:\LocalMachine\My
+    if (!(Test-Path -Path $PfxFilePath -PathType Leaf)) 
+    {
+        Write-Log "The PFX certificate file doesn't exist: $PfxFilePath" -LogLevel Error
+        throw "The PFX certificate file doesn't exist: $PfxFilePath"
+    }
+    $pfxCert = Import-PfxCertificate -FilePath $PfxFilePath -Password $PfxFilePassword -CertStoreLocation Cert:\LocalMachine\My -Exportable
+    $SSLThumbprint = $pfxCert.Thumbprint
+}
+elseif($PsCmdlet.ParameterSetName -eq "KeyVaultCertificate")
+{
+    $pfxCert = Install-KeyVaultCertificate -VaultName $VaultName -CertName $VaultCertName -CertStoreLocation Cert:\LocalMachine\My -Exportable
     $SSLThumbprint = $pfxCert.Thumbprint
 }
 else 
@@ -80,10 +121,6 @@ if($pfxCert.Subject -eq $pfxCert.Issuer)
     }
 }
 
-if(!(Test-Path -Path $SetupFilePath -PathType Leaf))
-{
-    throw "HPC Pack setup package not found: $SetupFilePath"
-}
 $hpcVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($SetupFilePath)
 if($hpcVersion.FileVersionRaw -lt '5.3')
 {

@@ -1,4 +1,5 @@
 import json
+from hpc.autoscale.node.node import Node
 import requests
 import urllib3
 import hpc.autoscale.hpclogging as logging
@@ -6,14 +7,14 @@ from datetime import datetime, timedelta
 from time import sleep
 from requests.models import Response
 from requests.exceptions import HTTPError
-from typing import Any, Dict, Iterable, List, NamedTuple, Optional
-from .commonutil import ci_equals, ci_in, ci_notin, ci_interset
+from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Union
+from .commonutil import ci_equals, ci_in, ci_notin, ci_interset, make_dict_single
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-SuspiciousCCNodeId = '00000000-0000-0000-0000-000000000000'
 GrowDecision = NamedTuple("GrowDecision", [("cores_to_grow", float), ("nodes_to_grow", float), ("sockets_to_grow", float)])
 IdleNode = NamedTuple("IdleNode", [("node_name", str), ("timestamp", datetime), ("server_name", float)])
+NodeIdentity = NamedTuple("NodeIdentity", [("Id", str), ("Name", str)])
 
 class HpcNode:
     # Possible values for HPC node health: 
@@ -22,22 +23,22 @@ class HpcNode:
     #   Unknown, Provisioning, Offline, Starting, Online, Draining, Rejected(*), Removing, NotDeployed(*), Stopping(*) 
     def __init__(
         self, 
+        id: str,
         name: str, 
         nodehealth: str, 
         nodestate: str,
         nodegroups: List[str],
         nodetemplate: Optional[str] = None
     ) -> None:
+        self.id = id
         self.name = name
         self.health = nodehealth
         self.state = nodestate
         self.nodegroups = nodegroups
         self.nodetemplate = nodetemplate
         self.cc_node_id: Optional[str] = None
-        self.cc_nodearray: Optional[str] = None
         self.idle_from: Optional[datetime] = None
-        self.to_remove = False
-        self.to_shrink = False
+        self.bound_cc_node: Optional[Node] = None
     
     @property
     def is_computenode(self) -> bool:
@@ -48,16 +49,16 @@ class HpcNode:
         return ci_notin(self.state, ["Rejected", "NotDeployed", "Stopping", "Removing"])
 
     @property
-    def cc_node(self) -> bool:
-        return bool(self.cc_node_id) and self.cc_node_id != SuspiciousCCNodeId
-
-    @property
-    def suspicious_cc_node(self) -> bool:
-        return self.cc_node_id == SuspiciousCCNodeId
+    def is_cc_node(self) -> bool:
+        return bool(self.cc_node_id)
 
     @property
     def error(self) -> bool:
         return ci_equals(self.health, "Error")
+
+    @property
+    def template_assigned(self) -> bool:
+        return bool(self.nodetemplate)
 
     @property
     def transitioning(self) -> bool:
@@ -67,14 +68,38 @@ class HpcNode:
     def ready_for_job(self) -> bool:
         return ci_equals(self.state, "Online") and ci_equals(self.health, "OK")
 
-
     @property
     def shall_addcyclecloudtag(self) -> bool:
-        return self.cc_node and ci_notin("CycleCloudNodes", self.nodegroups) and (not self.to_remove) and (not self.to_shrink)
+        return self.bound_cc_node and ci_notin("CycleCloudNodes", self.nodegroups)
 
     @property
     def shall_addnodearraytag(self) -> bool:
-        return self.cc_node and ci_notin(self.cc_nodearray, self.nodegroups) and (not self.to_remove) and (not self.to_shrink)
+        return self.bound_cc_node and ci_notin(self.cc_nodearray, self.nodegroups)
+
+    @property
+    def cc_nodearray(self) -> Optional[str]:
+        return self.bound_cc_node.nodearray if self.bound_cc_node else None
+
+    @property
+    def removed_cc_node(self) -> bool:
+        if self.bound_cc_node:
+            return False
+        return self.is_cc_node or (ci_in("CycleCloudNodes", self.nodegroups) and (self.error or not self.template_assigned))
+
+    @property
+    def stopped_cc_node(self) -> bool:
+        if not self.bound_cc_node:
+            return False
+        return ci_equals(self.bound_cc_node.target_state, 'Deallocated')
+
+    def shall_stop(self, idle_timeout) -> bool:
+        if not self.bound_cc_node:
+            return False
+        if ci_equals(self.bound_cc_node.target_state, 'Deallocated'):
+            return False
+        if self.idle_from is None:
+            return False
+        return self.idle_from + timedelta(seconds=idle_timeout) < datetime.utcnow()
 
 class HpcRestClient:
     DEFAULT_COMPUTENODE_TEMPLATE = "Default ComputeNode Template"
@@ -165,16 +190,25 @@ class HpcRestClient:
         self,
         filters: Dict[str, str] = {}
     ) -> List[str]:
-        res = self._get(self.list_node_names.__name__, self.LIST_NODES_ROUTE, filters)
-        retnodes = json.loads(res.content)
-        return [n["NetBiosName"] for n in retnodes]
+        nodes: List[NodeIdentity] = self.list_nodes(status=False, filters=filters)
+        return [n.Name for n in nodes]
 
     def list_nodes(
         self, 
         filters: Dict[str, str] = {}
-    ) -> List[HpcNode]:
+    ) -> Union[List[NodeIdentity], List[HpcNode]]:
+        res = self._get(self.list_nodes.__name__, self.LIST_NODES_ROUTE, filters)
+        nodes = [NodeIdentity(i['Id'], i['Name']) for i in json.loads(res.content)]
+        if len(nodes) == 0:
+            return nodes
+        nodeId_byName = make_dict_single(nodes, keyfunc=lambda n : n.Name, valuefunc=lambda n : n.Id)
         res = self._get(self.list_nodes.__name__, self.LIST_NODES_STATUS_ROUTE, filters)
-        return [HpcNode(n["Name"], n["NodeHealth"],n["NodeState"],n["Groups"], n["NodeTemplate"]) for n in json.loads(res.content)]
+        nodeStatusList = []
+        for n in json.loads(res.content):
+            nodeName = n["Name"]
+            if nodeName in nodeId_byName:
+                nodeStatusList.append(HpcNode(nodeId_byName[nodeName], nodeName, n["NodeHealth"],n["NodeState"],n["Groups"], n["NodeTemplate"]))
+        return nodeStatusList
 
     def list_computenodes(self) -> List[HpcNode]:
         nodes = self.list_nodes(filters={"nodeGroup":"ComputeNodes"})
@@ -183,11 +217,21 @@ class HpcRestClient:
     def get_nodes(
         self, 
         node_names: Iterable[str]
-    ) -> List[HpcNode]:
+    ) -> Union[List[NodeIdentity], List[HpcNode]]:
         assert len(node_names) > 0
+        res = self._get(self.list_nodes.__name__, self.LIST_NODES_ROUTE, None)
+        nodes = [NodeIdentity(i['Id'], i['Name']) for i in json.loads(res.content) if ci_in(i['Name'], node_names)]
+        if len(nodes) == 0:
+            return []
+        nodeId_byName = make_dict_single(nodes, keyfunc=lambda n : n.Name, valuefunc=lambda n : n.Id)
         params = json.dumps({"nodeNames": node_names})
         res = self._post(self.get_node_status_exact.__name__, self.NODE_STATUS_EXACT_ROUTE, params)
-        return [HpcNode(n["Name"], n["NodeHealth"],n["NodeState"],n["Groups"], n["NodeTemplate"]) for n in json.loads(res.content)]
+        nodeStatusList = []
+        for n in json.loads(res.content):
+            nodeName = n["Name"]
+            if nodeName in nodeId_byName:
+                nodeStatusList.append(HpcNode(nodeId_byName[nodeName], nodeName, n["NodeHealth"],n["NodeState"],n["Groups"], n["NodeTemplate"]))
+        return nodeStatusList
 
     def list_idle_nodes(
         self, 

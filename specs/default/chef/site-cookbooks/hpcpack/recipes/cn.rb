@@ -8,6 +8,11 @@ install_dir = "#{bootstrap_dir}\\hpcpack"
 
 directory install_dir
 
+cookbook_file "#{bootstrap_dir}\\InstallHPCHeadNode.ps1" do
+  source "InstallHPCComputeNode.ps1"
+  action :create
+end
+
 jetpack_download node['hpcpack']['cn']['installer_filename'] do
   project "hpcpack"
   not_if { ::File.exists?("#{node['jetpack']['downloads']}/#{node['hpcpack']['cn']['installer_filename']}") }
@@ -15,7 +20,7 @@ end
 
 powershell_script 'unzip-HpcPackInstaller' do
   code "#{bootstrap_dir}\\unzip.ps1 #{node['jetpack']['downloads']}/#{node['hpcpack']['cn']['installer_filename']} #{install_dir}"
-  creates "#{install_dir}\\InstallHPCComputeNode.ps1"
+  creates "#{install_dir}\\HpcCompute_x64.msi"
   only_if '$null -eq (Get-Service "HpcManagement" -ErrorAction SilentlyContinue)'
 end
 
@@ -31,7 +36,7 @@ end
 powershell_script 'install-hpcpack' do
   code <<-EOH
   $secpasswd = ConvertTo-SecureString '#{node['hpcpack']['cert']['password']}' -AsPlainText -Force
-  #{install_dir}\\InstallHPCComputeNode.ps1 -ClusterConnectionString #{node['hpcpack']['hn']['hostname']} -PfxFilePath "#{node['jetpack']['downloads']}\\#{node['hpcpack']['cert']['filename']}" -PfxFilePassword $secpasswd
+  #{bootstrap_dir}\\InstallHPCHeadNode.ps1 -SetupFilePath "#{install_dir}\\HpcCompute_x64.msi" -ClusterConnectionString #{node['hpcpack']['hn']['hostname']} -PfxFilePath "#{node['jetpack']['downloads']}\\#{node['hpcpack']['cert']['filename']}" -PfxFilePassword $secpasswd
   EOH
   only_if '$null -eq (Get-Service "HpcManagement" -ErrorAction SilentlyContinue)'
 end

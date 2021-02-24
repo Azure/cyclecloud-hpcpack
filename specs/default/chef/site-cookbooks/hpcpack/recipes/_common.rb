@@ -7,8 +7,8 @@ cookbook_file "#{bootstrap_dir}\\unzip.ps1" do
   action :create
 end
 
-cookbook_file "#{bootstrap_dir}\\LogUtilities.psm1" do
-  source "LogUtilities.psm1"
+cookbook_file "#{bootstrap_dir}\\InstallUtilities.psm1" do
+  source "InstallUtilities.psm1"
   action :create
 end
 
@@ -27,14 +27,20 @@ end
 Chef::Log.info('Modified scheduled task for on-boot converges.')
 
 
-# Install the dotnet framework if NetFx 4.7.2 or later not installed
+# HPC Pack 2016 requires NetFx 4.6, HPC Pack 2019 requires NetFx 4.7.2
 # if not installed, directly use NetFx 4.8
 jetpack_download "ndp48-web.exe" do
   project "hpcpack"
   not_if { ::File.exists?("#{node['jetpack']['downloads']}/ndp48-web.exe") }
   not_if <<-EOH
+    $targetNetFxVer = 461808
+    $hpcVersion = "#{node['hpcpack']['version']}"
+    if ($hpcVersion -eq '2016')
+    {
+      $targetNetFxVer = 393295
+    }
     $netfxVer = Get-ItemProperty "HKLM:\\SOFTWARE\\Microsoft\\NET Framework Setup\\NDP\\v4\\Full" -ErrorAction SilentlyContinue | Select -Property Release
-    $netfxVer -and ($netfxVer.Release -ge 461808)
+    $netfxVer -and ($netfxVer.Release -ge $targetNetFxVer)
   EOH
 end
 
@@ -44,8 +50,14 @@ powershell_script 'install-netfx-4.8' do
     Start-Process -FilePath #{node['jetpack']['downloads']}\\ndp48-web.exe -ArgumentList "/q /norestart /serialdownload /log `"$ndpLogFile`"" -Wait -PassThru
   EOH
   not_if <<-EOH
+    $targetNetFxVer = 461808
+    $hpcVersion = "#{node['hpcpack']['version']}"
+    if ($hpcVersion -eq '2016')
+    {
+      $targetNetFxVer = 393295
+    }
     $netfxVer = Get-ItemProperty "HKLM:\\SOFTWARE\\Microsoft\\NET Framework Setup\\NDP\\v4\\Full" -ErrorAction SilentlyContinue | Select -Property Release
-    $netfxVer -and ($netfxVer.Release -ge 461808)
+    $netfxVer -and ($netfxVer.Release -ge $targetNetFxVer)
   EOH
   notifies :reboot_now, 'reboot[Restart Computer]', :immediately
 end    

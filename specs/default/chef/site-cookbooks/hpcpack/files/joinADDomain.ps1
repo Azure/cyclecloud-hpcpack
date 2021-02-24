@@ -20,7 +20,6 @@
 )
 
 $ErrorActionPreference = "Stop"
-try {
 Set-StrictMode -Version latest
 if($PSVersionTable.PSVersion -lt '3.0' -or ([System.Environment]::OSVersion.Version.Major -eq 6 -and [System.Environment]::OSVersion.Version.Minor -eq 1))
 {
@@ -37,7 +36,7 @@ else
     $currentDir = $PSScriptRoot
 }
 
-Import-Module $currentDir\LogUtilities.psm1
+Import-Module $currentDir\InstallUtilities.psm1
 if(!$LogFilePath)
 {
     $logFolder = "C:\Windows\Temp\HPCSetupLogs"
@@ -80,7 +79,7 @@ $curDomainName = $null
 $computerSystemObj = Get-WmiObject Win32_ComputerSystem
 if($computerSystemObj.PartOfDomain)
 {
-    $maxRetries = 10
+    $maxRetries = 5
     $retry = 0
     while ($true) {
         try
@@ -175,8 +174,4 @@ else {
         Write-Log "Failed to add user ${$domainCred.UserName} as local administrator: $_" -LogLevel Warning
     }
 }
-}
-catch {
-    $_ | Out-File C:\Windows\Temp\joinDomain.err
-    exit 1    
-}
+
