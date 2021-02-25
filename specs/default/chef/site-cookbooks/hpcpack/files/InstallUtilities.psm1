@@ -4,6 +4,8 @@ NOTE:
     This module requires PowerShell 2.0 or later. 
 #>
 
+# Must disable Progress bar
+$ProgressPreference = "SilentlyContinue"
 $ErrorActionPreference = 'stop'
 Set-StrictMode -Version latest
 $Script:LogFile = $null
@@ -110,13 +112,13 @@ function Get-MsiAccessToken
     $Resource = $Resource.Trim()
     $encodedResource = [uri]::EscapeDataString($Resource)
     $tokenUri = "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=$encodedResource"
-    $resp = Invoke-WebRequest -Uri $tokenUri -Method Get -Headers @{Metadata="true"}
+    $resp = Invoke-WebRequest -Uri $tokenUri -Method Get -Headers @{Metadata="true"} -UseBasicParsing
     $content =$resp.Content | ConvertFrom-Json
     return $content.access_token
 }
 
 
-function Get-KeyVaultSecretValue 
+function Get-KeyVaultSecretValue
 {
     param (
         [parameter(Mandatory = $true)]
@@ -135,7 +137,7 @@ function Get-KeyVaultSecretValue
         $secretName = "$secretName/$Version"
     }
     $getCertUri = "https://${VaultName}.vault.azure.net/secrets/${secretName}?api-version=7.1"
-    $resp = Invoke-WebRequest -Uri $getCertUri -Method GET -ContentType "application/json" -Headers @{Authorization ="Bearer $access_token"}
+    $resp = Invoke-WebRequest -Uri $getCertUri -Method GET -ContentType "application/json" -Headers @{Authorization ="Bearer $access_token"} -UseBasicParsing
     $content = $resp.Content | ConvertFrom-Json
     return $content.value
 }
@@ -157,7 +159,7 @@ function Install-KeyVaultCertificate
         [string] $CertStoreLocation = "Cert:\LocalMachine\My",
 
         [parameter(Mandatory = $false)]
-        [Swtich] $Exportable
+        [switch] $Exportable
     )
    
     $certBase64String = Get-KeyVaultSecretValue -VaultName $VaultName -CertName $CertName -Version $Version
@@ -176,6 +178,7 @@ function Install-KeyVaultCertificate
     finally {
         $certStore.Close()
     }
+
     return $cert
 }
 
@@ -198,7 +201,10 @@ if($null -eq (Get-Command -Name Invoke-WebRequest -ErrorAction SilentlyContinue)
             [string] $ContentType = "",
 
             [Parameter(Mandatory=$false)]        
-            [hashtable] $Headers
+            [hashtable] $Headers,
+
+            [Parameter(Mandatory=$false)]        
+            [switch] $UseBasicParsing            
         )
 
         $request = [System.Net.WebRequest]::Create($Uri)

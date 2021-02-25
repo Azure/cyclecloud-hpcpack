@@ -3,64 +3,49 @@
 # Recipe:: autostart
 #
 
+config_dir = "#{node[:cyclecloud][:home]}\\config"
 bootstrap_dir = node['cyclecloud']['bootstrap']
 install_dir = "#{bootstrap_dir}/hpcpack-autoscaler-installer"
 install_pkg = "cyclecloud-hpcpack-pkg-1.2.0.zip"
-cert_pem = "hpc-comm.pem"
 
 # Default : c:\cycle\hpcpack-autoscaler
 autoscaler_dir="#{node[:cyclecloud][:home]}\\..\\hpcpack-autoscaler" 
 
-# template "#{bootstrap_dir}\\autoscale-logging-wrapper.ps1" do
-#     source "autoscale-logging-wrapper.ps1.erb"
-# end
-
-# template "#{bootstrap_dir}\\autoscale.ps1" do
-#     source "autoscale.ps1.erb"
-#     action :create
-#     notifies :run, 'powershell_script[initDB-autoscale]', :immediately
-#     variables(
-#         :estimated_cores_per_node => 4,  # HACK: Until we have autoscale-by-node, estimate min_node_count
-#         :min_node_count => node['hpcpack']['min_node_count'],
-#         :timespan_hr => node['hpcpack']['job']['default_runtime']['hr'],
-#         :timespan_min => node['hpcpack']['job']['default_runtime']['min'],
-#         :timespan_sec => node['hpcpack']['job']['default_runtime']['sec'],
-#         :threshold_hr => node['hpcpack']['job']['add_node_threshold']['hr'],
-#         :threshold_min => node['hpcpack']['job']['add_node_threshold']['min'],
-#         :threshold_sec => node['hpcpack']['job']['add_node_threshold']['sec'],
-#         :wait_before_jobs_s => node['cyclecloud']['cluster']['autoscale']['idle_time_before_jobs'],
-#         :wait_after_jobs_s => node['cyclecloud']['cluster']['autoscale']['idle_time_after_jobs']
-#         )
-# end
-
-# powershell_script 'initDB-autoscale' do
-#     code "#{bootstrap_dir}\\autoscale.ps1 -initialize >> #{bootstrap_dir}\\autoscale.log"
-#     action :nothing
-# end
-
-# windows_task 'hpc-autoscale' do
-#     task_name "HPCAutoscale"
-#     command   "powershell.exe -file #{bootstrap_dir}\\autoscale-logging-wrapper.ps1"
-#     user      "#{node['hpcpack']['ad']['domain']}\\#{node['hpcpack']['ad']['admin']['name']}"
-#     password  node['hpcpack']['ad']['admin']['password']
-#     frequency :minute
-#     #only_if { node['cyclecloud']['cluster']['autoscale']['start_enabled'] }
-# end
+cookbook_file "#{config_dir}\\autoscale_logging.conf" do
+  source "autoscale_logging.conf"
+  action :create
+end
 
 directory install_dir do
     action :create
 end
 
-
-jetpack_download cert_pem do
-    project "hpcpack"
-    not_if { ::File.exists?("#{node['jetpack']['downloads']}/#{cert_pem}") }
-end
-
-powershell_script 'unzip-LogViewer' do
-    code "Copy-Item -Path #{node['jetpack']['downloads']}\\#{cert_pem} -Destination #{bootstrap_dir}\\#{cert_pem}"
-    creates "#{bootstrap_dir}\\#{cert_pem}"
-    not_if { ::File.exists?("#{bootstrap_dir}/#{cert_pem}") }
+powershell_script 'Prepare-CertPemFile' do
+    code <<-EOH
+    $pfxFile = "#{node['hpcpack']['cert']['filename']}"
+    $pfxFilePath = "#{node['jetpack']['downloads']}\\$pfxFile"
+    if($pfxFile -and (Test-Path -Path $pfxFilePath)) {
+        openssl pkcs12 -in "#{node['jetpack']['downloads']}\\$pfxFile" -out "#{config_dir}\\hpc-comm.pem" -nodes -password pass:'#{node['hpcpack']['cert']['password']}'
+    }
+    else {
+        $sslThumbprint = (Get-ItemProperty -Name SSLThumbprint -Path "HKLM:\\SOFTWARE\\Microsoft\\HPC").SSLThumbprint
+        $pfxFile = [System.Guid]::NewGuid().ToString() + '.pfx'
+        $pfxFile = "#{config_dir}\\$pfxFile"
+        $secpasswd = ConvertTo-SecureString '#{node['hpcpack']['ad']['admin']['password']}' -AsPlainText -Force
+        Export-PfxCertificate -Cert Cert:\\LocalMachine\\My\\$sslThumbprint -FilePath $pfxFile -Password $secpasswd
+        openssl pkcs12 -in "$pfxFile" -out "#{config_dir}\\hpc-comm.pem" -nodes -password pass:'#{node['hpcpack']['ad']['admin']['password']}'
+        Remove-Item -Path $pfxFile -Force -ErrorAction SilentlyContinue
+    }
+    $acl = New-Object -TypeName System.Security.AccessControl.FileSecurity
+    $acl.SetAccessRuleProtection($True, $False)
+    foreach ($id in @("BUILTIN\\Administrators", "NT AUTHORITY\\SYSTEM")) {
+        $aclRule = New-Object -TypeName System.Security.AccessControl.FileSystemAccessRule -ArgumentList @($id, 'FullControl', 'Allow')
+        $acl.AddAccessRule($aclRule)
+    }
+    Set-Acl -Path "#{config_dir}\\hpc-comm.pem" -AclObject $acl
+    EOH
+    creates "#{config_dir}\\hpc-comm.pem"
+    not_if { ::File.exists?("#{config_dir}/hpc-comm.pem") }
 end
 
 # Get the autoscale packages

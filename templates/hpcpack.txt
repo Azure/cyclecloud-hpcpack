@@ -18,8 +18,8 @@ Autoscale = $Autoscale
       cyclecloud.maintenance_converge.enabled = true
       cyclecloud.hosts.standalone_dns.enabled = false
       cyclecloud.cluster.autoscale.idle_time_after_jobs = 900
-      cyclecloud.cluster.autoscale.idle_time_before_jobs = 3600
-      cyclecloud.cluster.autoscale.retention_days_after_deallocation = $VMRetentionDays
+      cyclecloud.cluster.autoscale.provisioning_timeout = 1500
+      cyclecloud.cluster.autoscale.vm_retention_days = $VMRetentionDays
       cyclecloud.node.prevent_metadata_access = false
 
    [[node windowshpcnodes]]
@@ -30,7 +30,7 @@ Autoscale = $Autoscale
       [[[configuration hpcpack]]]
       version = $HpcPackVersion
       ad.domain = $DomainName
-      ad.dns1 = $DnsServerAddress
+      ad.dnsServer = $DnsServerAddress
       headNodeAsDC = $PromoteHnAsDC
 
       # IMPORTANT: Currently, the HPC Pack DSC Resource assumes that the System User account
@@ -43,7 +43,7 @@ Autoscale = $Autoscale
       [[[configuration hpcpack.keyvault]]]
       vault_name = $VaultName
       admin.password_key = $PasswordSecret
-      cert_name = $VaultCertName
+      cert.cert_name = $VaultCertName
 
       [[[cluster-init hpcpack:default:1.2.0]]]
 
@@ -221,14 +221,6 @@ Order = 10
         Config.MinValue = 1
         Config.IntegerOnly = true
 
-        [[[parameter MaxScalesetSize]]]
-        Label = Max VMs per VMSS
-        Description = The maximum number of VMs created in a VM scale set.
-        DefaultValue = 100
-        Config.Plugin = pico.form.NumberTextBox
-        Config.MinValue = 1
-        Config.IntegerOnly = true
-
         [[[parameter ShutdownOption]]]
         Label = Scale-Down Option
         description = "By default, the VMs are deallocated on scale down, it can significantly reduce the booting time for restart. You only pay for the disk storage of the deallocated VMS. Optionally, you can choose Terminate to remove the VMs on scale down."
@@ -284,8 +276,7 @@ Order = 20
 
         [[[parameter DnsServerAddress]]]
         Label = DNS Server
-        Description = The DNS Server
-        Conditions.Required = !PromoteHnAsDC
+        Description = Specify the DNS Server if you didn't configure DNS server in your virtual network or you want to use a different DNS server
         Conditions.Hidden := PromoteHnAsDC
         Order = 30
 
@@ -304,7 +295,6 @@ Order = 20
         ParameterType = Azure.ManagedIdentity
         Label = MSI Identity
         Description = The Azure user assigned managed identity to access the Azure Key Vault secret and certificate. The identity will be applied to all nodes.
-        Required = True
         Conditions.Required = UseKeyVault        
         Conditions.Hidden := !UseKeyVault
         Order = 20
@@ -312,7 +302,6 @@ Order = 20
         [[[parameter VaultName]]]
         Label = Vault Name
         Description = The Azure Key Vault in which the user password and certificate are stored.
-        Required = True
         Conditions.Required = UseKeyVault
         Conditions.Hidden := !UseKeyVault
         Order = 30
@@ -339,7 +328,6 @@ Order = 20
             [[[[parameter PasswordSecret]]]]
             Label = Secret
             Description = The Azure Key Vault secret name to store the domain user password. (The supplied password must be between 12-123 characters long and must satisfy at least 3 of password complexity requirements from the following: 1) Contains an uppercase character 2) Contains a lowercase character 3) Contains a numeric digit 4) Contains a special character)
-            Required = False
             Conditions.Required = UseKeyVault        
             Conditions.Hidden := !UseKeyVault
             Order = 20
@@ -396,21 +384,21 @@ Order = 30
 
         [[[parameter HN2016ImageSku]]]
         Label = HN OS
-        Required = true
         DefaultValue = 2016u3hn-ws2016
         Description = The operating system of the head node
         Config.Plugin = pico.control.AutoCompleteDropdown
         Config.Entries := {[Label="Windows Server 2016"; Name="2016u3hn-ws2016"], [Label="Windows Server 2012 R2"; Value="2016u3hn-ws2012r2"]}
         Conditions.Hidden := HpcPackVersion != "2016"
+        Conditions.Required := HpcPackVersion == "2016"
 
         [[[parameter HN2019ImageSku]]]
         Label = HN OS
-        Required = true
         DefaultValue = 2019hn-ws2019
         Description = The operating system of the head node
         Config.Plugin = pico.control.AutoCompleteDropdown
         Config.Entries := {[Label="Windows Server 2019"; Name="2019hn-ws2019"], [Label="Windows Server 2016"; Value="2019hn-ws2016"]}
         Conditions.Hidden := HpcPackVersion != "2019"
+        Conditions.Required := HpcPackVersion == "2019"
 
         [[[parameter ComputeNodeImageName]]]
         Label = CN Image

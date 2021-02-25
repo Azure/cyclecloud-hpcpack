@@ -8,7 +8,7 @@ install_dir = "#{bootstrap_dir}\\hpcpack"
 
 directory install_dir
 
-cookbook_file "#{bootstrap_dir}\\InstallHPCHeadNode.ps1" do
+cookbook_file "#{bootstrap_dir}\\InstallHPCComputeNode.ps1" do
   source "InstallHPCComputeNode.ps1"
   action :create
 end
@@ -24,7 +24,6 @@ powershell_script 'unzip-HpcPackInstaller' do
   only_if '$null -eq (Get-Service "HpcManagement" -ErrorAction SilentlyContinue)'
 end
 
-
 # Set the cycle instance Id in environment variable CCP_LOGROOT_USR
 env 'CCP_LOGROOT_USR' do
   value "%LOCALAPPDATA%\\Microsoft\\Hpc\\LogFiles\\"
@@ -35,8 +34,15 @@ end
 # Install logs will end up in : C:\Windows\Temp\HPCSetupLogs\HPCSetupLogs*\chainer.txt
 powershell_script 'install-hpcpack' do
   code <<-EOH
-  $secpasswd = ConvertTo-SecureString '#{node['hpcpack']['cert']['password']}' -AsPlainText -Force
-  #{bootstrap_dir}\\InstallHPCHeadNode.ps1 -SetupFilePath "#{install_dir}\\HpcCompute_x64.msi" -ClusterConnectionString #{node['hpcpack']['hn']['hostname']} -PfxFilePath "#{node['jetpack']['downloads']}\\#{node['hpcpack']['cert']['filename']}" -PfxFilePassword $secpasswd
+  $vaultName = "#{node['hpcpack']['keyvault']['vault_name']}"
+  $vaultCertName = "#{node['hpcpack']['keyvault']['cert']['cert_name']}"
+  if($vaultName -and $vaultCertName) {
+    #{bootstrap_dir}\\InstallHPCComputeNode.ps1 -SetupFilePath "#{install_dir}\\HpcCompute_x64.msi" -ClusterConnectionString #{node['hpcpack']['hn']['hostname']} -VaultName $vaultName -VaultCertName $vaultCertName
+  }
+  else {
+    $secpasswd = ConvertTo-SecureString '#{node['hpcpack']['cert']['password']}' -AsPlainText -Force
+    #{bootstrap_dir}\\InstallHPCComputeNode.ps1 -SetupFilePath "#{install_dir}\\HpcCompute_x64.msi" -ClusterConnectionString #{node['hpcpack']['hn']['hostname']} -PfxFilePath "#{node['jetpack']['downloads']}\\#{node['hpcpack']['cert']['filename']}" -PfxFilePassword $secpasswd
+  }
   EOH
   only_if '$null -eq (Get-Service "HpcManagement" -ErrorAction SilentlyContinue)'
 end

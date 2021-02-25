@@ -52,6 +52,8 @@ function AddHPCPshModules
     }
 }
 
+# Must disable Progress bar
+$ProgressPreference = "SilentlyContinue"
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version latest
 Import-Module $PSScriptRoot\InstallUtilities.psm1
@@ -96,8 +98,15 @@ if($PsCmdlet.ParameterSetName -eq "PfxFilePath")
 }
 elseif($PsCmdlet.ParameterSetName -eq "KeyVaultCertificate")
 {
-    $pfxCert = Install-KeyVaultCertificate -VaultName $VaultName -CertName $VaultCertName -CertStoreLocation Cert:\LocalMachine\My -Exportable
-    $SSLThumbprint = $pfxCert.Thumbprint
+    Write-Log "Install certificate $VaultCertName from key vault $VaultName"
+    try {
+        $pfxCert = Install-KeyVaultCertificate -VaultName $VaultName -CertName $VaultCertName -CertStoreLocation Cert:\LocalMachine\My -Exportable
+        $SSLThumbprint = $pfxCert.Thumbprint        
+    }
+    catch {
+        Write-Log "Failed to install certificate $VaultCertName from key vault $VaultName : $_"
+        throw
+    }
 }
 else 
 {

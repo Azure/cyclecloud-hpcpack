@@ -27,6 +27,8 @@ Param
     [string] $VaultCertName
 )
 
+# Must disable Progress bar
+$ProgressPreference = "SilentlyContinue"
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version latest
 if($PSVersionTable.PSVersion -lt '3.0' -or ([System.Environment]::OSVersion.Version.Major -eq 6 -and [System.Environment]::OSVersion.Version.Minor -eq 1))
@@ -69,8 +71,14 @@ if($PsCmdlet.ParameterSetName -eq "PfxFilePath")
 }
 elseif($PsCmdlet.ParameterSetName -eq "KeyVaultCertificate")
 {
-    $pfxCert = Install-KeyVaultCertificate -VaultName $VaultName -CertName $VaultCertName -CertStoreLocation Cert:\LocalMachine\My
-    $SSLThumbprint = $pfxCert.Thumbprint
+    try {
+        $pfxCert = Install-KeyVaultCertificate -VaultName $VaultName -CertName $VaultCertName -CertStoreLocation Cert:\LocalMachine\My
+        $SSLThumbprint = $pfxCert.Thumbprint
+    }
+    catch {
+        Write-Log "Failed to install certificate $VaultCertName from key vault $VaultName : $_"
+        throw
+    }
 }
 else 
 {

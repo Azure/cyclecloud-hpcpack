@@ -50,8 +50,8 @@ class NodeHistoryItem:
             self.cc_id, self.hostname, self.hpc_id, self.emerge_time, self.start_time, self.idle_from, self.stop_time)
 
     def archive_str(self, archive_time = datetime.utcnow()) -> str:
-        return "cc_id={}, hostname={}, hpc_id={}, emerge_time={}, archive_time={}".format(
-            self.cc_id, self.hostname, self.hpc_id, self.emerge_time, archive_time)
+        return "cc_id={}, hostname={}, hpc_id={}, emerge_time={}, stop_time={}, archive_time={}".format(
+            self.cc_id, self.hostname, self.hpc_id, self.emerge_time, self.stop_time, archive_time)
 
 class HpcNodeHistory:
     def __init__(

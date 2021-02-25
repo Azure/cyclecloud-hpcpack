@@ -25,10 +25,17 @@ powershell_script 'Install-HpcSingleHeadNode' do
     code <<-EOH
     $secpasswd = ConvertTo-SecureString '#{node['hpcpack']['ad']['admin']['password']}' -AsPlainText -Force
     $domainCred = New-Object System.Management.Automation.PSCredential ("#{node['hpcpack']['ad']['domain']}\\#{node['hpcpack']['ad']['admin']['name']}", $secpasswd)
-    $seccertpasswd = ConvertTo-SecureString '#{node['hpcpack']['cert']['password']}' -AsPlainText -Force
-    #{bootstrap_dir}\\InstallHPCHeadNode.ps1 -ClusterName $env:ComputerName -PfxFilePath "#{node['jetpack']['downloads']}\\#{node['hpcpack']['cert']['filename']}" -PfxFilePassword $seccertpasswd -SetupCredential $domainCred
+    $vaultName = "#{node['hpcpack']['keyvault']['vault_name']}"
+    $vaultCertName = "#{node['hpcpack']['keyvault']['cert']['cert_name']}"
+    if($vaultName -and $vaultCertName) {
+      #{bootstrap_dir}\\InstallHPCHeadNode.ps1 -ClusterName $env:ComputerName -VaultName $vaultName -VaultCertName $vaultCertName -SetupCredential $domainCred
+    }
+    else {
+      $seccertpasswd = ConvertTo-SecureString '#{node['hpcpack']['cert']['password']}' -AsPlainText -Force
+      #{bootstrap_dir}\\InstallHPCHeadNode.ps1 -ClusterName $env:ComputerName -PfxFilePath "#{node['jetpack']['downloads']}\\#{node['hpcpack']['cert']['filename']}" -PfxFilePassword $seccertpasswd -SetupCredential $domainCred
+    }
     EOH
-    user "#{node['hpcpack']['ad']['admin']['name']}"
+    user "#{node['hpcpack']['ad']['domain']}\\#{node['hpcpack']['ad']['admin']['name']}"
     password "#{node['hpcpack']['ad']['admin']['password']}"
     not_if 'Get-Service "HpcManagement"  -ErrorAction SilentlyContinue'
 end

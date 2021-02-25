@@ -84,20 +84,9 @@ jetpack_download "nuget.exe" do
   not_if { ::File.exists?("#{node[:cyclecloud][:home]}/bin/nuget.exe") }
 end
 
-
-jetpack_download node['hpcpack']['cert']['filename'] do
-  project "hpcpack"
-  not_if { ::File.exists?("#{node['jetpack']['downloads']}/#{node['hpcpack']['cert']['filename']}") }
-end
-
-if node['hpcpack']['install_logviewer']
-  jetpack_download "LogViewer1.2.2.4.zip" do
+if ! node['hpcpack']['cert']['filename'].nil?
+  jetpack_download node['hpcpack']['cert']['filename'] do
     project "hpcpack"
-  end
-
-  powershell_script 'unzip-LogViewer' do
-    code "#{bootstrap_dir}\\unzip.ps1 #{node['jetpack']['downloads']}\\LogViewer1.2.2.4.zip #{bootstrap_dir}"
-    creates "#{bootstrap_dir}\\LogViewer1.2.2.4"
+    not_if { ::File.exists?("#{node['jetpack']['downloads']}/#{node['hpcpack']['cert']['filename']}") }
   end
 end
-

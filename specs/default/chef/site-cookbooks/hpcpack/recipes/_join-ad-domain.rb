@@ -32,7 +32,13 @@ powershell_script 'join-ADDomain' do
   code <<-EOH
   $secpasswd = ConvertTo-SecureString '#{node['hpcpack']['ad']['admin']['password']}' -AsPlainText -Force
   $domainCred = New-Object System.Management.Automation.PSCredential ("#{node['hpcpack']['ad']['domain']}\\#{node['hpcpack']['ad']['admin']['name']}", $secpasswd)
-  #{bootstrap_dir}\\joinADDomain.ps1 -DomainName #{node['hpcpack']['ad']['domain']} -DnsServers @("#{node['hpcpack']['ad']['dns1']}") -Credential $domainCred -LogFilePath "#{bootstrap_dir}\\joinADDomain.txt"
+  $dnsServer = "#{node['hpcpack']['ad']['dnsServer']}".Trim()
+  if($dnsServer) {
+    #{bootstrap_dir}\\joinADDomain.ps1 -DomainName #{node['hpcpack']['ad']['domain']} -DnsServers @($dnsServer) -Credential $domainCred -LogFilePath "#{bootstrap_dir}\\joinADDomain.txt"
+  }
+  else {
+    #{bootstrap_dir}\\joinADDomain.ps1 -DomainName #{node['hpcpack']['ad']['domain']} -Credential $domainCred -LogFilePath "#{bootstrap_dir}\\joinADDomain.txt"
+  }
   EOH
   not_if '(Get-WmiObject -Class Win32_ComputerSystem).PartOfDomain'
   notifies :run, 'ruby_block[set_reboot_required]', :immediately    

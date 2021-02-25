@@ -27,5 +27,5 @@ end
 
 if node[:hpcpack][:headNodeAsDC]
   log "Head node (IP=#{node.default[:hpcpack][:hn][:ip_address]}) acts as domain controller" do level :info end
-  node.default[:hpcpack][:ad][:dns1] = node.default[:hpcpack][:hn][:ip_address]
+  node.default[:hpcpack][:ad][:dnsServer] = node.default[:hpcpack][:hn][:ip_address]
 end

@@ -1,5 +1,5 @@
 include_recipe "hpcpack::_get_secrets"
-include_recipe "hpcpack::_ps"
+
 bootstrap_dir = node['cyclecloud']['bootstrap']
 
 # Ensure that the local User is a local Admin

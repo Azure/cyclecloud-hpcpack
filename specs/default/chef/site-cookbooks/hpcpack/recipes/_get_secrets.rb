@@ -1,4 +1,25 @@
 bootstrap_dir = node['cyclecloud']['bootstrap']
+config_dir = "#{node[:cyclecloud][:home]}\\config"
+
+powershell_script 'Set-FileAccessPermissions' do
+  code <<-EOH
+  $acl = New-Object -TypeName System.Security.AccessControl.FileSecurity
+  $acl.SetAccessRuleProtection($True, $False)
+  foreach ($id in @("BUILTIN\\Administrators", "NT AUTHORITY\\SYSTEM")) {
+      $aclRule = New-Object -TypeName System.Security.AccessControl.FileSystemAccessRule -ArgumentList @($id, 'FullControl', 'Allow')
+      $acl.AddAccessRule($aclRule)
+  }
+  $protectFiles = @("lockers.json", "connection.json", "node.json")
+  foreach($file in $protectFiles)
+  {
+    try {    
+      Set-Acl -Path "#{config_dir}\\$file" -AclObject $acl
+    }
+    catch { }
+  }
+  EOH
+  not_if 'Test-Path -Path "#{bootstrap_dir}\\keyvault_get_secret.py"'
+end
 
 cookbook_file "#{bootstrap_dir}\\keyvault_get_secret.py" do
   source "keyvault_get_secret.py"

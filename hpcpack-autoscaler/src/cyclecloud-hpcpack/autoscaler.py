@@ -17,7 +17,7 @@ from .hpcnodehistory import HpcNodeHistory, NodeHistoryItem
 
 CONFIG_DEFAULTS = {
     "logging": {
-        "config_file": str(pathlib.Path(__file__).parent.absolute().joinpath("logging.conf")),
+        "config_file": "C:\\cycle\\jetpack\\config\\autoscale_logging.conf",
     },
     "min_counts": {
         # Min. Instance Counts by NodeGroup name
@@ -28,11 +28,12 @@ CONFIG_DEFAULTS = {
         "start_enabled": True,
         "statefile": "C:\\cycle\\jetpack\\config\\autoscaler_state.txt",
         "archivefile": "C:\\cycle\\jetpack\\config\\autoscaler_archive.txt", 
-        "idle_time_after_jobs": 300,
+        "vm_retention_days": 7,
+        "idle_time_after_jobs": 600,
         "provisioning_timeout": 1500,
     },
     'hpcpack': {
-        "pem": "C:\\cycle\\jetpack\\system\\bootstrap\\hpc-comm.pem",
+        "pem": "C:\\cycle\\jetpack\\config\\hpc-comm.pem",
         "hn_hostname": "localhost",
     },
     'cyclecloud': {
@@ -58,10 +59,10 @@ def autoscale_hpcpack(
         ctx_handler.set_context("[Sync-Status]")
     autoscale_config = config.get("autoscale") or {}
     # Load history info
-    idle_timeout_seconds:int = autoscale_config.get("idle_time_after_jobs") or 900    
+    idle_timeout_seconds:int = autoscale_config.get("idle_time_after_jobs") or 600    
     provisioning_timeout_seconds = autoscale_config.get("provisioning_timeout") or 1500
-    statefile = autoscale_config.get("statefile") or "C:\\cycle\\hpcpack-autoscaler\\state.txt"
-    archivefile = autoscale_config.get("archivefile") or "C:\\cycle\\hpcpack-autoscaler\\archivefile.txt"
+    statefile = autoscale_config.get("statefile") or "C:\\cycle\\jetpack\\config\\autoscaler_state.txt"
+    archivefile = autoscale_config.get("archivefile") or "C:\\cycle\\jetpack\\config\\autoscaler_archive.txt"
     node_history = HpcNodeHistory(
         statefile=statefile, 
         archivefile=archivefile, 
@@ -295,9 +296,10 @@ def autoscale_hpcpack(
         else:
             logging.info("No idle node found in this round.")
 
+        retention_days = autoscale_config.get("vm_retention_days") or 7
         for nhi in node_history.items:
             if nhi.stopped:
-                if nhi.stop_time + timedelta(minutes=180) < datetime.utcnow():
+                if nhi.stop_time + timedelta(days=retention_days) < datetime.utcnow():
                     cc_node = cc_nodes_by_id.get(nhi.cc_id)
                     if cc_node is not None:
                         cc_node_to_terminate.append(cc_node)
@@ -355,24 +357,30 @@ def load_config_defaults_from_jetpack() -> None:
     if not os.path.exists(jetpack_cmd):
         return
     
+    global CONFIG_DEFAULTS    
     try:
-        autoscale_enabled = check_output([jetpack_cmd, "config", 'cyclecloud.cluster.autoscale.start_enabled']).strip().decode()
-        autoscale_idle_time_after_jobs = check_output([jetpack_cmd, "config", 'cyclecloud.cluster.autoscale.idle_time_after_jobs']).strip().decode()
         cluster_name = check_output([jetpack_cmd, "config", 'cyclecloud.cluster.name']).strip().decode()
-        url = check_output([jetpack_cmd, "config", 'cyclecloud.config.web_server']).strip().decode()
-        password = check_output([jetpack_cmd, "config", 'cyclecloud.config.password']).strip().decode()
-        username = check_output([jetpack_cmd, "config", 'cyclecloud.config.username']).strip().decode()
-
-
-        global CONFIG_DEFAULTS
         CONFIG_DEFAULTS['cyclecloud']['cluster_name'] = cluster_name
+        url = check_output([jetpack_cmd, "config", 'cyclecloud.config.web_server']).strip().decode()
         CONFIG_DEFAULTS['cyclecloud']['url'] = url
+        password = check_output([jetpack_cmd, "config", 'cyclecloud.config.password']).strip().decode()
         CONFIG_DEFAULTS['cyclecloud']['password'] = password
+        username = check_output([jetpack_cmd, "config", 'cyclecloud.config.username']).strip().decode()
         CONFIG_DEFAULTS['cyclecloud']['username'] = username
-        CONFIG_DEFAULTS['autoscale']['start_enabled'] = ci_equals(autoscale_enabled, "True")
-        CONFIG_DEFAULTS['autoscale']['idle_time_after_jobs'] = int(autoscale_idle_time_after_jobs)
     except CalledProcessError:
         logging.warning("Failed to get cluster configuration from jetpack...")
+
+    try:        
+        autoscale_enabled = check_output([jetpack_cmd, "config", 'cyclecloud.cluster.autoscale.start_enabled']).strip().decode()
+        CONFIG_DEFAULTS['autoscale']['start_enabled'] = ci_equals(autoscale_enabled, "True")
+        autoscale_idle_time_after_jobs = check_output([jetpack_cmd, "config", 'cyclecloud.cluster.autoscale.idle_time_after_jobs']).strip().decode()
+        CONFIG_DEFAULTS['autoscale']['idle_time_after_jobs'] = int(autoscale_idle_time_after_jobs)
+        autoscale_provisioning_timeout = check_output([jetpack_cmd, "config", 'cyclecloud.cluster.autoscale.provisioning_timeout']).strip().decode()
+        CONFIG_DEFAULTS['autoscale']['provisioning_timeout'] = int(autoscale_provisioning_timeout)
+        autoscale_vm_retention_days = check_output([jetpack_cmd, "config", 'cyclecloud.cluster.autoscale.vm_retention_days']).strip().decode()
+        CONFIG_DEFAULTS['autoscale']['vm_retention_days'] = int(autoscale_vm_retention_days)
+    except CalledProcessError:
+        logging.warning("Failed to get cluster autoscale configuration from jetpack...")
 
 def load_autoscaler_config(
     config_file: str
