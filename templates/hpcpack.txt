@@ -90,39 +90,15 @@ Autoscale = $Autoscale
       SSD = true
       Azure.Lun = 0
 
-
-   [[nodearray regularcn]]
+   [[nodearray cn]]
    Extends = windowshpcnodes
    MachineType = $ExecuteMachineType
-   ComputerNamePrefix = regu
-   ImageName =  $ComputeNodeImageName
-   ShutdownPolicy = $ShutdownOption
-   
-   # The initial number of cores of this type to start when the cluster starts
-   InitialCoreCount= 0
-
-   # The maximum number of cores to start when the cluster is configured for autoscaling
-   MaxCoreCount = 8
-
-   AdditionalClusterInitSpecs = $ExecuteClusterInitSpecs
-   
-      [[[configuration]]]
-      hpcpack.cn.installer_filename = ${HpcPackVersion == "2019" ? "hpccn2019.zip" : "hpccn2016.zip"}
-
-      [[[cluster-init hpcpack:cn:1.2.0]]]
-
-      [[[network-interface eth0]]]
-      AssociatePublicIpAddress = false
-
-   [[nodearray spotcn]]
-   Extends = windowshpcnodes
-   MachineType = $ExecuteMachineType
-   ComputerNamePrefix = spot
+   ComputerNamePrefix = cn-
    ImageName =  $ComputeNodeImageName
    ShutdownPolicy = $ShutdownOption
 
    # Azure Low Priority Instances?
-   Interruptible = true
+   Interruptible = $UseLowPrio
    
    # The initial number of cores of this type to start when the cluster starts
    InitialCoreCount= 0
@@ -171,7 +147,7 @@ Order = 10
         ParameterType = StringList
         Config.Plugin = pico.form.Dropdown
         Config.Entries := {[Label="HPC Pack 2019"; Value="2019"], [Label="HPC Pack 2016"; Value="2016"]}
-        DefaultValue = 2019
+        DefaultValue = "2019"
         
     [[parameters Virtual Machines ]]
     Description = "The cluster, in this case, has two roles: the head node and the compute nodes. Configure which VM types to use based on the requirements of your application."
@@ -202,16 +178,7 @@ Order = 10
         Label = Autoscale
         DefaultValue = true
         Widget.Plugin = pico.form.BooleanCheckBox
-        Widget.Label = Start and stop compute instances automatically
-
-        [[[parameter MinExecuteCount]]]
-        Label = Min. Exec. VMs
-        Description = The number of compute nodes to keep running at all times
-        DefaultValue = 1
-        Config.Plugin = pico.form.NumberTextBox
-        Config.MinValue = 0
-        Config.MaxValue = 5000
-        Config.IntegerOnly = true
+        Widget.Label = Start and stop compute nodes automatically
 
         [[[parameter MaxExecuteCoreCount]]]
         Label = Max Cores
@@ -253,7 +220,7 @@ Order = 20
         Label = Subnet ID
         Description = Subnet Resource Path (ResourceGroup/VirtualNetwork/Subnet)
         ParameterType = Azure.Subnet
-        Required = True
+        Required = true
 
     [[parameters Active Directory Domain]]
     Description = "An Active Directory Domain is required for HPC user and computer authentication. If you don't have an existing AD domain, you can create a new AD domain by promoting the head node as domain controller."
@@ -270,15 +237,9 @@ Order = 20
         [[[parameter DomainName]]]
         Label = Domain Name
         Description = The domain name in which the virtual machines will join, for example, 'contoso.com'.
-        Config.Required = true
+        Required = true
         DefaultValue = hpc.local
         Order = 20
-
-        [[[parameter DnsServerAddress]]]
-        Label = DNS Server
-        Description = Specify the DNS Server if you didn't configure DNS server in your virtual network or you want to use a different DNS server
-        Conditions.Hidden := PromoteHnAsDC
-        Order = 30
 
     [[parameters Secrets and Certificate]]
     Description = Specify the user credentials and certificate used to create the HPC Pack cluster. RECOMMENDED: Use Azure KeyVault to store the user password and certificate.
@@ -294,16 +255,16 @@ Order = 20
         [[[parameter ManagedServiceIdentity]]]
         ParameterType = Azure.ManagedIdentity
         Label = MSI Identity
-        Description = The Azure user assigned managed identity to access the Azure Key Vault secret and certificate. The identity will be applied to all nodes.
-        Conditions.Required = UseKeyVault        
-        Conditions.Hidden := !UseKeyVault
+        Description = The Azure user assigned managed identity to access the Azure Key Vault secret and certificate. Make sure it has 'Get' Permission of the Azure Key vault secret and certificate. The identity will be applied to all nodes.
+        Required = true
+        Conditions.Excluded := !UseKeyVault
         Order = 20
 
         [[[parameter VaultName]]]
         Label = Vault Name
-        Description = The Azure Key Vault in which the user password and certificate are stored.
-        Conditions.Required = UseKeyVault
-        Conditions.Hidden := !UseKeyVault
+        Description = The Azure Key Vault in which the user password and certificate are stored. You must have granted the MSI Identity 'Get' Permission of Secret and Certificate for this Key Vault.
+        Required = true
+        Conditions.Excluded := !UseKeyVault
         Order = 30
 
         [[[parameters User Credentials]]]
@@ -314,22 +275,22 @@ Order = 20
             Label = Username
             Description = The domain user name, also used as local administrator user name for the virtual machines.
             DefaultValue = hpcadmin
-            Required = True
+            Required = true
             Order = 10
 
             [[[[parameter Password]]]]
             Label = Password
             ParameterType = Password
             Description = The domain user password, also used as local administrator user password. (The supplied password must be between 12-123 characters long and must satisfy at least 3 of password complexity requirements from the following: 1) Contains an uppercase character 2) Contains a lowercase character 3) Contains a numeric digit 4) Contains a special character)
-            Conditions.Required = !UseKeyVault        
-            Conditions.Hidden := UseKeyVault
+            Required = true      
+            Conditions.Excluded := UseKeyVault
             Order = 20
 
             [[[[parameter PasswordSecret]]]]
-            Label = Secret
-            Description = The Azure Key Vault secret name to store the domain user password. (The supplied password must be between 12-123 characters long and must satisfy at least 3 of password complexity requirements from the following: 1) Contains an uppercase character 2) Contains a lowercase character 3) Contains a numeric digit 4) Contains a special character)
-            Conditions.Required = UseKeyVault        
-            Conditions.Hidden := !UseKeyVault
+            Label = Password Secret
+            Description = The name of the Azure Key Vault secret which stores the domain user password. (The supplied password must be between 12-123 characters long and must satisfy at least 3 of password complexity requirements from the following: 1) Contains an uppercase character 2) Contains a lowercase character 3) Contains a numeric digit 4) Contains a special character)
+            Required = true        
+            Conditions.Excluded := !UseKeyVault
             Order = 20
 
         [[[parameters PFX Certificate]]]
@@ -342,30 +303,29 @@ Order = 20
             Config.Template = '''
             Refer to <a href="https://docs.microsoft.com/powershell/high-performance-computing/deploy-an-hpc-pack-cluster-in-azure#create-azure-key-vault-certificate-on-azure-portal" target="_blank">Create Azure Key Vault Certificate for Microsoft HPC Pack</a>.
 '''
-            Conditions.Hidden := !UseKeyVault
+            Conditions.Hidden  := !UseKeyVault
             Order = 5
 
             [[[[parameter VaultCertName]]]]
             Label = Certificate Name
-            Description = The Azure Key Vault certificate name which stores the HPC Pack node communication certificate.
-            Conditions.Required = UseKeyVault
-            Conditions.Hidden := !UseKeyVault
+            Description = The name of the Azure Key Vault certificate which stores the HPC Pack node communication certificate.
+            Required = true
+            Conditions.Excluded := !UseKeyVault
             Order = 10
             
             [[[[parameter PfxFileName]]]]
             Label = PfxFile Name
-            Description = The file name of PFX format certificate which you already uploaded to the blobs.
-            DefaultValue = hpc-comm.pfx
-            Conditions.Required = !UseKeyVault
-            Conditions.Hidden := UseKeyVault
+            Description = The file name of PFX format certificate which you have already uploaded to the blobs.
+            Required = true
+            Conditions.Excluded := UseKeyVault
             Order = 10
 
             [[[[parameter PfxPassword]]]]
             Label = Protection Password
             ParameterType = Password
             Description = The protection password for the PFX certificate file.
-            Conditions.Required = !UseKeyVault
-            Conditions.Hidden := UseKeyVault
+            Required = true
+            Conditions.Excluded := UseKeyVault
             Order = 20
 
 [parameters Advanced Settings]
@@ -389,7 +349,7 @@ Order = 30
         Config.Plugin = pico.control.AutoCompleteDropdown
         Config.Entries := {[Label="Windows Server 2016"; Name="2016u3hn-ws2016"], [Label="Windows Server 2012 R2"; Value="2016u3hn-ws2012r2"]}
         Conditions.Hidden := HpcPackVersion != "2016"
-        Conditions.Required := HpcPackVersion == "2016"
+        Required = true
 
         [[[parameter HN2019ImageSku]]]
         Label = HN OS
@@ -398,7 +358,7 @@ Order = 30
         Config.Plugin = pico.control.AutoCompleteDropdown
         Config.Entries := {[Label="Windows Server 2019"; Name="2019hn-ws2019"], [Label="Windows Server 2016"; Value="2019hn-ws2016"]}
         Conditions.Hidden := HpcPackVersion != "2019"
-        Conditions.Required := HpcPackVersion == "2019"
+        Required = true
 
         [[[parameter ComputeNodeImageName]]]
         Label = CN Image
@@ -421,8 +381,15 @@ Order = 30
     Description = Advanced networking settings
     Order = 20
 
+        [[[parameter DnsServerAddress]]]
+        Label = DNS Server
+        Description = By default the DNS server(s) configured in the virtual network will be applied to the VMs. Specify a DNS Server IP if you want to use a different DNS server for the HPC nodes.
+        Conditions.Hidden := PromoteHnAsDC
+        Order = 10
+
         [[[parameter MasterPublicIp]]]
-        Label = Head node has Public IP
-        DefaultValue = true
+        Label = HN Public IP
+        DefaultValue = false
         Widget.Plugin = pico.form.BooleanCheckBox
         Widget.Label = Assign a public ip address to the head node
+        Order = 20

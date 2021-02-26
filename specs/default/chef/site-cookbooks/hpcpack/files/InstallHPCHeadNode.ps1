@@ -65,6 +65,15 @@ if(-not (Test-Path $logFolder))
 $logfileName = "installhn-" + [System.DateTimeOffset]::UtcNow.ToString("yyyyMMdd-HHmmss") + ".txt"
 Set-LogFile -Path "$logFolder\$logfileName"
 
+$cmdLine = $PSCommandPath
+foreach($boundParam in $PSBoundParameters.GetEnumerator())
+{
+    if($boundParam.Key -notmatch 'Password' -and $boundParam.Key -notmatch 'Credential') {
+        $cmdLine += " -$($boundParam.Key) $($boundParam.Value)"
+    }
+}
+Write-Log $cmdLine
+
 if(-not $SetupFilePath)
 {    
     if(Test-Path "C:\HPCPack2019\Setup.exe" -PathType Leaf) 
@@ -77,12 +86,12 @@ if(-not $SetupFilePath)
     }
     else
     {
-        throw "Cannot found HPC Pack setup package"
+        Write-Log "Cannot found HPC Pack setup package" -LogLevel Error
     }
 }
 elseif (!(Test-Path -Path $SetupFilePath -PathType Leaf)) 
 {
-    throw "HPC Pack setup package not found: $SetupFilePath"
+    Write-Log "HPC Pack setup package not found: $SetupFilePath" -LogLevel Error
 }
 
 ### Import the certificate
@@ -91,10 +100,14 @@ if($PsCmdlet.ParameterSetName -eq "PfxFilePath")
     if (!(Test-Path -Path $PfxFilePath -PathType Leaf)) 
     {
         Write-Log "The PFX certificate file doesn't exist: $PfxFilePath" -LogLevel Error
-        throw "The PFX certificate file doesn't exist: $PfxFilePath"
     }
-    $pfxCert = Import-PfxCertificate -FilePath $PfxFilePath -Password $PfxFilePassword -CertStoreLocation Cert:\LocalMachine\My -Exportable
-    $SSLThumbprint = $pfxCert.Thumbprint
+    try {
+        $pfxCert = Import-PfxCertificate -FilePath $PfxFilePath -Password $PfxFilePassword -CertStoreLocation Cert:\LocalMachine\My -Exportable
+        $SSLThumbprint = $pfxCert.Thumbprint        
+    }
+    catch {
+        
+    }
 }
 elseif($PsCmdlet.ParameterSetName -eq "KeyVaultCertificate")
 {
@@ -104,8 +117,7 @@ elseif($PsCmdlet.ParameterSetName -eq "KeyVaultCertificate")
         $SSLThumbprint = $pfxCert.Thumbprint        
     }
     catch {
-        Write-Log "Failed to install certificate $VaultCertName from key vault $VaultName : $_"
-        throw
+        Write-Log "Failed to install certificate $VaultCertName from key vault $VaultName : $_" -LogLevel Error
     }
 }
 else 
@@ -114,7 +126,6 @@ else
     if($null -eq $pfxCert)
     {
         Write-Log "The certificate Cert:\LocalMachine\My\$SSLThumbprint doesn't exist" -LogLevel Error
-        throw "The certificate Cert:\LocalMachine\My\$SSLThumbprint doesn't exist"
     }    
 }
 
@@ -133,7 +144,7 @@ if($pfxCert.Subject -eq $pfxCert.Issuer)
 $hpcVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($SetupFilePath)
 if($hpcVersion.FileVersionRaw -lt '5.3')
 {
-    throw "The HPC Pack version $($hpcVersion.FileVersionRaw) is not supported."
+    Write-Log "The HPC Pack version $($hpcVersion.FileVersionRaw) is not supported." -LogLevel Error
 }
 
 $defaultLocalDB = $false
@@ -216,11 +227,11 @@ while($true)
     {
         if($exitCode -eq 13818)
         {
-            throw "Failed to Install HPC Pack Head Node (errCode=$exitCode): the certificate doesn't meet the requirements."
+            Write-Log "Failed to Install HPC Pack Head Node (errCode=$exitCode): the certificate doesn't meet the requirements." -LogLevel Error
         }
         else
         {
-            throw "Failed to Install HPC Pack Head Node (errCode=$exitCode)"
+            Write-Log "Failed to Install HPC Pack Head Node (errCode=$exitCode)" -LogLevel Error
         }
     }
 }
@@ -239,7 +250,7 @@ while($true)
     {
         if($retry++ -ge $maxRetryTimes)
         {
-            throw "HPC Cluster is not ready after $maxRetryTimes connection attempts: $($_ | Out-String)"
+            Write-Log "HPC Cluster is not ready after $maxRetryTimes connection attempts: $($_ | Out-String)" -LogLevel Error
         }
         else
         {
@@ -254,7 +265,7 @@ Write-Log "Set HPC Network topology to Enterprise"
 $nic = Get-WmiObject win32_networkadapterconfiguration -filter "IPEnabled='true' AND DHCPEnabled='true'" | Select-Object -First(1)
 if ($null -eq $nic)
 {
-    throw "Cannot find a suitable network adapter for enterprise topology"
+    Write-Log "Cannot find a suitable network adapter for enterprise topology" -LogLevel Error
 }
 
 $retry = 0
@@ -269,7 +280,7 @@ while($true)
     {
         if($retry++ -ge $maxRetryTimes)
         {
-            throw "Failed to set HPC network topology: $($_ | Out-String)"
+            Write-Log "Failed to set HPC network topology: $($_ | Out-String)" -LogLevel Error
         }
         else
         {
@@ -294,7 +305,7 @@ while($true)
     {
         if($retry++ -ge $maxRetryTimes)
         {
-            throw "Failed to set Setup User Credential: $_"
+            Write-Log "Failed to set Setup User Credential: $_" -LogLevel Error
         }
         else
         {
@@ -319,7 +330,7 @@ while($true)
     {
         if($retry++ -ge $maxRetryTimes)
         {
-            throw "Failed to set NodeNamingSeries: $_"
+            Write-Log "Failed to set NodeNamingSeries: $_" -LogLevel Error
         }
         else
         {
@@ -329,3 +340,5 @@ while($true)
         }
     }
 }
+
+Write-Log "End running $($MyInvocation.MyCommand.Definition)"

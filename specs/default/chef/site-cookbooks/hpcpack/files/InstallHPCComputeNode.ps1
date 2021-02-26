@@ -54,9 +54,18 @@ if(-not (Test-Path $logFolder))
 }
 
 Set-LogFile -Path "$logFolder\setup.txt"
+$cmdLine = $MyInvocation.MyCommand.Definition
+foreach($boundParam in $PSBoundParameters.GetEnumerator())
+{
+    if($boundParam.Key -notmatch 'Password' -and $boundParam.Key -notmatch 'Credential') {
+        $cmdLine += " -$($boundParam.Key) $($boundParam.Value)"
+    }
+}
+Write-Log $cmdLine
+
 if (!(Test-Path -Path $SetupFilePath -PathType Leaf)) 
 {
-    throw "HPC Pack setup package not found: $SetupFilePath"
+    Write-Log "HPC Pack setup package not found: $SetupFilePath" -LogLevel Error
 }
 ### Import the certificate
 if($PsCmdlet.ParameterSetName -eq "PfxFilePath")
@@ -64,10 +73,14 @@ if($PsCmdlet.ParameterSetName -eq "PfxFilePath")
     if (!(Test-Path -Path $PfxFilePath -PathType Leaf)) 
     {
         Write-Log "The PFX certificate file doesn't exist: $PfxFilePath" -LogLevel Error
-        throw "The PFX certificate file doesn't exist: $PfxFilePath"
     }
-    $pfxCert = Import-PfxCertificate -FilePath $PfxFilePath -Password $PfxFilePassword -CertStoreLocation Cert:\LocalMachine\My
-    $SSLThumbprint = $pfxCert.Thumbprint
+    try {
+        $pfxCert = Import-PfxCertificate -FilePath $PfxFilePath -Password $PfxFilePassword -CertStoreLocation Cert:\LocalMachine\My
+        $SSLThumbprint = $pfxCert.Thumbprint       
+    }
+    catch {
+        Write-Log "Failed to import PfxFile $PfxFilePath : $_" -LogLevel Error
+    }
 }
 elseif($PsCmdlet.ParameterSetName -eq "KeyVaultCertificate")
 {
@@ -76,8 +89,7 @@ elseif($PsCmdlet.ParameterSetName -eq "KeyVaultCertificate")
         $SSLThumbprint = $pfxCert.Thumbprint
     }
     catch {
-        Write-Log "Failed to install certificate $VaultCertName from key vault $VaultName : $_"
-        throw
+        Write-Log "Failed to install certificate $VaultCertName from key vault $VaultName : $_" -LogLevel Error
     }
 }
 else 
@@ -86,7 +98,6 @@ else
     if($null -eq $pfxCert)
     {
         Write-Log "The certificate Cert:\LocalMachine\My\$SSLThumbprint doesn't exist" -LogLevel Error
-        throw "The certificate Cert:\LocalMachine\My\$SSLThumbprint doesn't exist"
     }    
 }
 
@@ -124,18 +135,18 @@ if([System.IO.Path]::GetFileName($SetupFilePath) -eq 'Setup.exe')
         }
         if($exitCode -eq 13818)
         {
-            throw "Failed to Install HPC compute node (errCode=$exitCode): the certificate doesn't meet the requirements."
+            Write-Log "Failed to Install HPC compute node (errCode=$exitCode): the certificate doesn't meet the requirements." -LogLevel Error
         }
 
         if($retry++ -lt 5)
         {
-            Write-Warning "Failed to Install HPC compute node (errCode=$exitCode), retry later..."
+            Write-Warning "Failed to Install HPC compute node (errCode=$exitCode), retry later..." -LogLevel Warning
             Clear-DnsClientCache
             Start-Sleep -Seconds ($retry * 10)
         }
         else
         {
-            throw "Failed to Install HPC compute node (ErrCode=$exitCode)"
+            Write-Log "Failed to Install HPC compute node (ErrCode=$exitCode)" -LogLevel Error
         }
     }    
 }
@@ -180,4 +191,5 @@ else
     }
 }
 
+Write-Log "End running $($MyInvocation.MyCommand.Definition)"
 exit $exitCode

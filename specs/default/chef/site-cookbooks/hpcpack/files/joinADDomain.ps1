@@ -7,10 +7,10 @@
     [PSCredential] $Credential,
 
     [parameter(Mandatory = $false)]
-    [string] $OuPath,
+    [string] $OuPath = "",
 
     [parameter(Mandatory = $false)]
-    [string] $PreferredDC,
+    [string] $PreferredDC = "",
 
     [parameter(Mandatory = $false)]
     [string[]] $DnsServers = @(),
@@ -49,6 +49,15 @@ if(!$LogFilePath)
 }
 
 Set-LogFile -Path $LogFilePath
+$cmdLine = $MyInvocation.MyCommand.Definition
+foreach($boundParam in $PSBoundParameters.GetEnumerator())
+{
+    if($boundParam.Key -notmatch 'Password' -and $boundParam.Key -notmatch 'Credential') {
+        $cmdLine += " -$($boundParam.Key) $($boundParam.Value)"
+    }
+}
+Write-Log $cmdLine
+
 if($DnsServers.Count -gt 0)
 {
     Write-Log "Setting DNS servers: $($DnsServers -join ', ')"
@@ -109,7 +118,6 @@ if($DomainName -ne $curDomainName)
     if($computerSystemObj.DomainRole -ge 4)
     {
         Write-Log "The computer is a domain controller of domain $curDomainName, cannot join domain $DomainName." -LogLevel Error
-        throw "The computer is a domain controller of domain $curDomainName, cannot join domain $DomainName."
     }
     Write-Log "The computer shall join domain $DomainName."
     $joinDomainArguments = @{
@@ -175,3 +183,4 @@ else {
     }
 }
 
+Write-Log "End running $($MyInvocation.MyCommand.Definition)"

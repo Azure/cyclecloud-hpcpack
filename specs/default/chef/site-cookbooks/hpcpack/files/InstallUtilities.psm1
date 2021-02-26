@@ -28,7 +28,7 @@ function Write-Log
         [string]$Message,
 
         [Parameter(Mandatory=$false, Position=1)]
-        [ValidateSet("Error","Warning","Information","Detail")]
+        [ValidateSet("Error", "Warning", "Information", "Detail")]
         [string]$LogLevel = "Information"
     )
 
@@ -43,6 +43,11 @@ function Write-Log
         catch
         {
         }
+    }
+
+    if($LogLevel -eq "Error")
+    {
+        throw $Message
     }
 }
 
@@ -95,7 +100,7 @@ function DownloadFile
             }
             else
             {
-               throw "Failed to download from $SourceUrl : $_"
+               Write-Log "Failed to download from $SourceUrl : $_" -LogLevel Error
             }
         }
     }
