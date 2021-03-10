@@ -106,7 +106,7 @@ if($PsCmdlet.ParameterSetName -eq "PfxFilePath")
         $SSLThumbprint = $pfxCert.Thumbprint        
     }
     catch {
-        
+        Write-Log "Failed to import PfxFile $PfxFilePath : $_" -LogLevel Error
     }
 }
 elseif($PsCmdlet.ParameterSetName -eq "KeyVaultCertificate")
@@ -336,6 +336,37 @@ while($true)
         {
             $RetryIntervalSec = [Math]::Ceiling($retry/10) * 10
             Write-Log "Failed to set NodeNamingSeries, wait for $RetryIntervalSec seconds ..."  -LogLevel Warning
+            Start-Sleep -Seconds $RetryIntervalSec
+        }
+    }
+}
+
+Write-Log "Create default broker node template"
+$defaultBNTemplateName = "Default BrokerNode Template"
+while($true)
+{
+    try
+    {
+        $bnTemplate = Get-HpcNodeTemplate -Name $defaultBNTemplateName -ErrorAction SilentlyContinue
+        if($null -ne $bnTemplate)
+        {
+            break
+        }
+        
+        New-HpcNodeTemplate -Name $defaultBNTemplateName -Type BrokerNode -ErrorAction Stop
+        break
+    }
+    catch
+    {
+        if($retry++ -ge $maxRetryTimes)
+        {
+            # Do not fail the installation because this is optional configuration
+            break
+        }
+        else
+        {
+            $RetryIntervalSec = [Math]::Ceiling($retry/10) * 10
+            Write-Log "Failed to create '$defaultBNTemplateName', wait for $RetryIntervalSec seconds ..."  -LogLevel Warning
             Start-Sleep -Seconds $RetryIntervalSec
         }
     }

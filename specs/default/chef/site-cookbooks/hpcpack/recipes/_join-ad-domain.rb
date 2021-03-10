@@ -33,11 +33,16 @@ powershell_script 'join-ADDomain' do
   $secpasswd = ConvertTo-SecureString '#{node['hpcpack']['ad']['admin']['password']}' -AsPlainText -Force
   $domainCred = New-Object System.Management.Automation.PSCredential ("#{node['hpcpack']['ad']['domain']}\\#{node['hpcpack']['ad']['admin']['name']}", $secpasswd)
   $dnsServer = "#{node['hpcpack']['ad']['dnsServer']}".Trim()
+  $ouPath = "#{node['hpcpack']['ad']['ouPath']}".Trim()
+  $maxRetries = 30
+  if("#{node['hpcpack']['headNodeAsDC']}" -eq "true") {
+    $maxRetries = 90
+  }
   if($dnsServer) {
-    #{bootstrap_dir}\\joinADDomain.ps1 -DomainName #{node['hpcpack']['ad']['domain']} -DnsServers @($dnsServer) -Credential $domainCred -LogFilePath "#{bootstrap_dir}\\joinADDomain.txt"
+    #{bootstrap_dir}\\joinADDomain.ps1 -DomainName #{node['hpcpack']['ad']['domain']} -MaxRetryCount $maxRetries -OuPath $ouPath -DnsServers @($dnsServer) -Credential $domainCred -LogFilePath "#{bootstrap_dir}\\joinADDomain.txt"
   }
   else {
-    #{bootstrap_dir}\\joinADDomain.ps1 -DomainName #{node['hpcpack']['ad']['domain']} -Credential $domainCred -LogFilePath "#{bootstrap_dir}\\joinADDomain.txt"
+    #{bootstrap_dir}\\joinADDomain.ps1 -DomainName #{node['hpcpack']['ad']['domain']} -MaxRetryCount $maxRetries -OuPath $ouPath -Credential $domainCred -LogFilePath "#{bootstrap_dir}\\joinADDomain.txt"
   }
   EOH
   not_if '(Get-WmiObject -Class Win32_ComputerSystem).PartOfDomain'

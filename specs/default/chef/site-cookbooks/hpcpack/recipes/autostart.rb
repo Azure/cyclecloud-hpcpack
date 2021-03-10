@@ -63,6 +63,7 @@ end
 #(Currently relies on install.ps1 to be safely re-runnable (idempotent or upgradable))
 powershell_script 'install-autoscaler' do
     code "& #{install_dir}\\install.ps1"
+    not_if { ::File.exists?("C:/cycle/jetpack/bin/azcc_autoscale.ps1") }
 end
 
 windows_task 'cyclecloud-hpc-autoscaler' do

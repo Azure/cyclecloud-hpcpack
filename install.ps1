@@ -6,7 +6,6 @@
 # Expects to find nuget on the PATH or in JETPACK_BIN
 [string]$AUTOSCALER_HOME="c:\cycle\hpcpack-autoscaler" 
 [string]$JETPACK_BIN = "C:\cycle\jetpack\bin"
-[string]$BOOTSTRAP = "C:\cycle\jetpack\system\bootstrap"
 [string]$AUTOSCALER_VENV="c:\cycle\hpcpack-autoscaler\.venvs\cyclecloud-hpcpack"
 
 mkdir -Force "$AUTOSCALER_HOME"
@@ -25,13 +24,6 @@ if (-not (Test-Path "$AUTOSCALER_VENV")) {
 # & pip install urllib3 requests typeguard jsonpickle pytz
 & pip install -U (get-item $PSScriptRoot\packages\*)
 # & pip install -e .
-
-
-@"
-& $AUTOSCALER_VENV\Scripts\Activate.ps1
-
-& python -m cyclecloud-hpcpack.cli  @args
-"@ > $JETPACK_BIN\azcc.ps1
 
 @"
 & $AUTOSCALER_VENV\Scripts\Activate.ps1

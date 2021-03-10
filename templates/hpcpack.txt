@@ -30,6 +30,7 @@ Autoscale = $Autoscale
       [[[configuration hpcpack]]]
       version = $HpcPackVersion
       ad.domain = $DomainName
+      ad.ouPath = $DomainOUPath
       ad.dnsServer = $DnsServerAddress
       headNodeAsDC = $PromoteHnAsDC
 
@@ -240,6 +241,12 @@ Order = 20
         Required = true
         DefaultValue = hpc.local
         Order = 20
+
+        [[[parameter DomainOUPath]]]
+        Label = OUPath
+        Description = Specifies an organizational unit (OU) for the domain machine accounts. The default value is the default OU for machine objects in the domain.
+        Conditions.Hidden := PromoteHnAsDC
+        Order = 30
 
     [[parameters Secrets and Certificate]]
     Description = Specify the user credentials and certificate used to create the HPC Pack cluster. RECOMMENDED: Use Azure KeyVault to store the user password and certificate.

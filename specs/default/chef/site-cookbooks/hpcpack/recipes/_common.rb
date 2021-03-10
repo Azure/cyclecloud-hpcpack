@@ -26,7 +26,6 @@ powershell_script "Add on-boot re-converge" do
 end
 Chef::Log.info('Modified scheduled task for on-boot converges.')
 
-
 # HPC Pack 2016 requires NetFx 4.6, HPC Pack 2019 requires NetFx 4.7.2
 # if not installed, directly use NetFx 4.8
 jetpack_download "ndp48-web.exe" do

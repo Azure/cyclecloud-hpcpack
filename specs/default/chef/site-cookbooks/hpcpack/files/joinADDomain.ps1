@@ -7,6 +7,12 @@
     [PSCredential] $Credential,
 
     [parameter(Mandatory = $false)]
+    [int] $RetryIntervalSeconds = 10,    
+
+    [parameter(Mandatory = $false)]
+    [int] $MaxRetryCount = 30, 
+
+    [parameter(Mandatory = $false)]
     [string] $OuPath = "",
 
     [parameter(Mandatory = $false)]
@@ -143,7 +149,7 @@ if($DomainName -ne $curDomainName)
             Write-Log "PreferredDC specified but not supported in PowerShell 2.0: $preferredDC"
         }
     }
-    $maxRetries = 25
+
     $retry = 0
     while ($true) {
         try {
@@ -158,7 +164,7 @@ if($DomainName -ne $curDomainName)
                 Write-Log "Joining domain $DomainName with the credential of $userName"
                 break
             }
-            if($retry++ -ge $maxRetries) {
+            if($retry++ -ge $MaxRetryCount) {
                 Write-Log "Failed to join domain ${DomainName}: $($_ | Out-String)" -LogLevel Error
             }
             else {
@@ -166,7 +172,7 @@ if($DomainName -ne $curDomainName)
             }
         }
 
-        Start-Sleep -Seconds 10
+        Start-Sleep -Seconds $RetryIntervalSeconds
         ipconfig /flushdns
     }
 }

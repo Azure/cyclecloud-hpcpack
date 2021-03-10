@@ -24,12 +24,6 @@ powershell_script 'unzip-HpcPackInstaller' do
   only_if '$null -eq (Get-Service "HpcManagement" -ErrorAction SilentlyContinue)'
 end
 
-# Set the cycle instance Id in environment variable CCP_LOGROOT_USR
-env 'CCP_LOGROOT_USR' do
-  value "%LOCALAPPDATA%\\Microsoft\\Hpc\\LogFiles\\"
-  only_if '$null -eq (Get-Service "HpcManagement" -ErrorAction SilentlyContinue)'
-end
-
 # Install Hpc Compute Node
 # Install logs will end up in : C:\Windows\Temp\HPCSetupLogs\HPCSetupLogs*\chainer.txt
 powershell_script 'install-hpcpack' do
@@ -51,6 +45,7 @@ end
 # Ideally it shall be done in the autoscaler
 powershell_script 'assign-NodeTemplate' do
     code <<-EOH
+    $env:CCP_LOGROOT_USR = "%LOCALAPPDATA%\\Microsoft\\Hpc\\LogFiles\\"
     Add-PsSnapin Microsoft.HPC
     $headNodeName = "#{node['hpcpack']['hn']['hostname']}"
     Set-Content Env:CCP_SCHEDULER $headNodeName
