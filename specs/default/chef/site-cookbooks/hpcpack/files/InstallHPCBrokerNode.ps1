@@ -101,21 +101,54 @@ if($pfxCert.Subject -eq $pfxCert.Issuer)
     }
 }
 
+# Uninstall the old HPC Pack installation
+$hpcRegKey = Get-Item HKLM:\SOFTWARE\Microsoft\HPC -ErrorAction SilentlyContinue
+if($hpcRegKey -and ("ClusterConnectionString" -in $hpcRegKey.Property))
+{
+    $curClusConnStr = ($hpcRegKey | Get-ItemProperty | Select-Object -Property ClusterConnectionString).ClusterConnectionString
+    if($curClusConnStr -ne $ClusterConnectionString)
+    {
+        # Check whether old HPC components installed, uninstall them if installed
+        $UninstallStrings = @(Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall" | Get-ItemProperty -Name UninstallString -ErrorAction SilentlyContinue | %{$_.UninstallString})
+        $hpcv5ExcelGuid = "F22EA2E8-08F0-4675-B10F-60C939D336D6"
+        $hpcv5ServerGuid = "02985CCE-D7D5-40FF-9C81-6334523210F9"
+        $hpcv5ClientGuid = "186B7E1A-6C30-46AB-AB83-4AE925377838"
+        $hpcv6ServerGuid = "A001F5CA-5D6A-4BDA-9885-36E7A8EBABCC"
+        $hpcv6ClientGuid = "C10E3B39-4D82-48D4-AB7C-BDF16FEEAD6D"
+        $oldHpcComponentExists = $false
+        foreach($pcode in @($hpcv5ExcelGuid, $hpcv5ServerGuid, $hpcv6ServerGuid, $hpcv5ClientGuid, $hpcv6ClientGuid))
+        {
+            if($UninstallStrings | Where-Object{$_ -match $pcode})
+            {
+                $oldHpcComponentExists = $true
+                Write-Log "Old HPC component {$pcode} found, uninstalling it..."
+                Start-Process -FilePath "msiexec.exe" -ArgumentList "/quiet /passive /x {$pcode}" -NoNewWindow -Wait
+            }
+        }
+        
+        if($oldHpcComponentExists -and (Test-Path "C:\HPCPack2016"))
+        {
+            Write-Log "Removing the old HPC setup package C:\HPCPack2016 ..."
+            Remove-item C:\HPCPack2016 -Force -Recurse -ErrorAction SilentlyContinue
+        }        
+    }
+}
+
 $setupArgs = "-unattend -Quiet -BrokerNode:`"$ClusterConnectionString`" -SSLThumbprint:$SSLThumbprint"
 $retry = 0
 while($true)
 {
-    Write-Verbose "Installing HPC Pack broker node"
+    Write-Log "Installing HPC Pack broker node"
     $p = Start-Process -FilePath $SetupFilePath -ArgumentList $setupArgs -PassThru -Wait
     $exitCode = $p.ExitCode
     if($exitCode -eq 0)
     {
-        Write-Verbose "Succeed to Install HPC broker node"
+        Write-Log "Succeed to Install HPC broker node"
         break
     }
     if($exitCode -eq 3010)
     {
-        Write-Verbose "Succeed to Install HPC broker node, a reboot is required."
+        Write-Log "Succeed to Install HPC broker node, a reboot is required."
         break
     }
     if($exitCode -eq 13818)

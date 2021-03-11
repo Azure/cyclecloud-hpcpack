@@ -10,6 +10,27 @@ cookbook_file "#{bootstrap_dir}\\InstallHPCHeadNode.ps1" do
   action :create
 end
 
+powershell_script "Ensure TLS 1.2 for nuget" do
+  code <<-EOH
+  Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\.NetFramework\\v4.0.30319' -Name 'SchUseStrongCrypto' -Value '1' -Type DWord
+  if(Test-Path 'HKLM:\\SOFTWARE\\Wow6432Node\\Microsoft\\.NetFramework\\v4.0.30319')
+  {
+    Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Wow6432Node\\Microsoft\\.NetFramework\\v4.0.30319' -Name 'SchUseStrongCrypto' -Value '1' -Type DWord
+  }
+  EOH
+  not_if <<-EOH
+    $strongCrypo = Get-ItemProperty "HKLM:\\SOFTWARE\\Microsoft\\.NetFramework\\v4.0.30319" -ErrorAction SilentlyContinue | Select -Property SchUseStrongCrypto
+    $strongCrypo -and ($strongCrypo.SchUseStrongCrypto -eq 1)
+  EOH
+end
+
+# Get the nuget binary as well
+jetpack_download "nuget.exe" do
+  project "hpcpack"
+  dest "#{node[:cyclecloud][:home]}/bin/nuget.exe"
+  not_if { ::File.exists?("#{node[:cyclecloud][:home]}/bin/nuget.exe") }
+end
+
 powershell_script "Install-NuGet" do
     code <<-EOH
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12

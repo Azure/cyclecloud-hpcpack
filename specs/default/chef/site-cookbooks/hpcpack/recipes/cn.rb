@@ -2,6 +2,7 @@ include_recipe "hpcpack::_get_secrets"
 include_recipe "hpcpack::_common"
 include_recipe "hpcpack::_find-hn"
 include_recipe "hpcpack::_join-ad-domain"
+include_recipe "hpcpack::_install_dotnetfx"
 
 bootstrap_dir = node['cyclecloud']['bootstrap']
 install_dir = "#{bootstrap_dir}\\hpcpack"
@@ -15,13 +16,52 @@ end
 
 jetpack_download node['hpcpack']['cn']['installer_filename'] do
   project "hpcpack"
-  not_if { ::File.exists?("#{node['jetpack']['downloads']}/#{node['hpcpack']['cn']['installer_filename']}") }
+  ignore_failure true
+  not_if { ::File.exists?("#{node['jetpack']['downloads']}/#{node['hpcpack']['cn']['installer_filename']}") || ::File.exists?("#{install_dir}/HpcCompute_x64.msi") || ::File.exists?("#{install_dir}/Setup.exe")}
 end
 
 powershell_script 'unzip-HpcPackInstaller' do
   code "#{bootstrap_dir}\\unzip.ps1 #{node['jetpack']['downloads']}/#{node['hpcpack']['cn']['installer_filename']} #{install_dir}"
   creates "#{install_dir}\\HpcCompute_x64.msi"
-  only_if '$null -eq (Get-Service "HpcManagement" -ErrorAction SilentlyContinue)'
+  ignore_failure true
+  not_if { ::File.exists?("#{install_dir}/HpcCompute_x64.msi") || ::File.exists?("#{install_dir}/Setup.exe")}
+end
+
+# If we failed to download HpcPackInstaller, we will try to copy from head node
+powershell_script 'Copy-HpcPackInstaller' do
+  code  <<-EOH
+  $reminst = "\\\\#{node['hpcpack']['hn']['hostname']}\\REMINST"
+  $retry = 0
+  While($true) {
+    if(Test-Path "$reminst\\Setup.exe") {
+      if("#{node['hpcpack']['version']}" -eq "2019") {
+        Copy-Item -Path "$reminst\\amd64\\SSCERuntime_x64-ENU.exe" -Destination "#{install_dir}" -Force
+        Copy-Item -Path "$reminst\\MPI\\MSMpiSetup.exe" -Destination "#{install_dir}" -Force
+        Copy-Item -Path "$reminst\\Setup\\HpcCompute_x64.msi" -Destination "#{install_dir}" -Force
+      }
+      else {
+        New-Item "#{install_dir}\\amd64" -ItemType Directory -Force
+        New-Item "#{install_dir}\\i386" -ItemType Directory -Force
+        New-Item "#{install_dir}\\MPI" -ItemType Directory -Force
+        New-Item "#{install_dir}\\Setup" -ItemType Directory -Force
+        Copy-Item -Path "$reminst\\amd64\\*" -Destination "#{install_dir}\\amd64" -Force
+        Copy-Item -Path "$reminst\\i386\\vcredist_x86.exe" -Destination "#{install_dir}\\i386\\" -Force
+        Copy-Item -Path "$reminst\\MPI\\*" -Destination "#{install_dir}\\MPI" -Force
+        Copy-Item -Path "$reminst\\Setup\\*" -Destination "#{install_dir}\\Setup" -Recurse -Force -Exclude @('*_x86.msi', 'HpcKsp*')
+        Copy-Item -Path "$reminst\\Setup.exe" -Destination "#{install_dir}" -Force
+      }
+      break
+    }
+    elseif($retry++ -lt 50) {
+      start-sleep -seconds 20
+    }
+    else {
+      throw "head node not available"
+    }
+  }
+  EOH
+  creates "#{install_dir}\\Setup.exe"
+  not_if { ::File.exists?("#{install_dir}/HpcCompute_x64.msi") || ::File.exists?("#{install_dir}/Setup.exe")}
 end
 
 # Install Hpc Compute Node
@@ -30,6 +70,10 @@ powershell_script 'install-hpcpack' do
   code <<-EOH
   $vaultName = "#{node['hpcpack']['keyvault']['vault_name']}"
   $vaultCertName = "#{node['hpcpack']['keyvault']['cert']['cert_name']}"
+  $setupFilePath = "#{install_dir}\\HpcCompute_x64.msi"
+  if(!(Test-Path $setupFilePath)) {
+    $setupFilePath = "#{install_dir}\\Setup.exe"
+  }
   if($vaultName -and $vaultCertName) {
     #{bootstrap_dir}\\InstallHPCComputeNode.ps1 -SetupFilePath "#{install_dir}\\HpcCompute_x64.msi" -ClusterConnectionString #{node['hpcpack']['hn']['hostname']} -VaultName $vaultName -VaultCertName $vaultCertName
   }
@@ -38,7 +82,10 @@ powershell_script 'install-hpcpack' do
     #{bootstrap_dir}\\InstallHPCComputeNode.ps1 -SetupFilePath "#{install_dir}\\HpcCompute_x64.msi" -ClusterConnectionString #{node['hpcpack']['hn']['hostname']} -PfxFilePath "#{node['jetpack']['downloads']}\\#{node['hpcpack']['cert']['filename']}" -PfxFilePassword $secpasswd
   }
   EOH
-  only_if '$null -eq (Get-Service "HpcManagement" -ErrorAction SilentlyContinue)'
+  not_if <<-EOH
+  $hpcRegValues = Get-Item HKLM:\\SOFTWARE\\Microsoft\\HPC -ErrorAction SilentlyContinue | Get-ItemProperty | Select-Object -Property ClusterConnectionString
+  ($hpcRegValues -and ($hpcRegValues.ClusterConnectionString -eq "#{node['hpcpack']['hn']['hostname']}"))
+  EOH
 end
 
 # Auto assign the node to "Default ComputeNode Template" and add to the node group "CycleCloudNodes"
@@ -52,8 +99,8 @@ powershell_script 'assign-NodeTemplate' do
     $retry = 0
     $this_node = Get-HpcNode -Name $env:COMPUTERNAME -Scheduler $headNodeName -ErrorAction SilentlyContinue
     while ($null -eq $this_node) {
-      if($retry++ -lt 5) {
-        Start-Sleep -Seconds 10
+      if($retry++ -lt 20) {
+        Start-Sleep -Seconds 3
         $this_node = Get-HpcNode -Name $env:COMPUTERNAME -Scheduler $headNodeName -ErrorAction SilentlyContinue
       } else {
         throw "Node not shown in the HPC cluster."
