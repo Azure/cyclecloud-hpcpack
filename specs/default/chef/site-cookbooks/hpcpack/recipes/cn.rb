@@ -34,7 +34,7 @@ powershell_script 'Copy-HpcPackInstaller' do
   $retry = 0
   While($true) {
     if(Test-Path "$reminst\\Setup.exe") {
-      if("#{node['hpcpack']['version']}" -eq "2019") {
+      if(Test-Path "$reminst\\Setup\\HpcCompute_x64.msi") {
         Copy-Item -Path "$reminst\\amd64\\SSCERuntime_x64-ENU.exe" -Destination "#{install_dir}" -Force
         Copy-Item -Path "$reminst\\MPI\\MSMpiSetup.exe" -Destination "#{install_dir}" -Force
         Copy-Item -Path "$reminst\\Setup\\HpcCompute_x64.msi" -Destination "#{install_dir}" -Force

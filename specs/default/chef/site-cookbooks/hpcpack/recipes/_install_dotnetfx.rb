@@ -1,22 +1,6 @@
 # HPC Pack 2016 requires NetFx 4.6, HPC Pack 2019 requires NetFx 4.7.2
-# if not installed, directly use NetFx 4.8
-# If we failed to download HpcPackInstaller, we will try to copy from head node
-jetpack_download "ndp48-web.exe" do
-  project "hpcpack"
-  ignore_failure true
-  not_if { ::File.exists?("#{node['jetpack']['downloads']}/ndp48-web.exe") }
-  not_if <<-EOH
-    $targetNetFxVer = 461808
-    $hpcVersion = "#{node['hpcpack']['version']}"
-    if ($hpcVersion -eq '2016')
-    {
-      $targetNetFxVer = 393295
-    }
-    $netfxVer = Get-ItemProperty "HKLM:\\SOFTWARE\\Microsoft\\NET Framework Setup\\NDP\\v4\\Full" -ErrorAction SilentlyContinue | Select -Property Release
-    $netfxVer -and ($netfxVer.Release -ge $targetNetFxVer)
-  EOH
-end
-
+# The Windows Server 2012 R2/2016/2019 images in Azure Marketplace are all with 4.7.2 pre-installed
+# In case NetFx not installed, we will try to copy from head node and install
 powershell_script 'Copy-DotNetFx' do
   code  <<-EOH
   $reminst = "\\\\#{node['hpcpack']['hn']['hostname']}\\REMINST"
@@ -34,7 +18,6 @@ powershell_script 'Copy-DotNetFx' do
     }
   }
   EOH
-  not_if { ::File.exists?("#{node['jetpack']['downloads']}/ndp48-web.exe") }
   not_if <<-EOH
     $targetNetFxVer = 461808
     $hpcVersion = "#{node['hpcpack']['version']}"
