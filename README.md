@@ -1,29 +1,35 @@
-# HPC Pack 2016 Update 1 for CycleCloud
+# Azure CycleCloud HPC Pack project
+
+HPC Pack is Microsoft's free HPC solution built on Microsoft Azure and Windows Server technologies and supports a wide range of HPC workloads. For more information see [Microsoft HPC Pack overview](https://docs.microsoft.com/powershell/high-performance-computing/overview). This project supports HPC Pack 2016 (with Update 3) and HPC Pack 2019.
 
 ---
-## Features
 
-This cluster launches a bastion host (for secure connection to the vnet), an
-AD domain controller and an HPC Pack head node.  As jobs are submitted to the
-head node, compute nodes with autoscale as needed.
+## Prerequisites
 
-### Prerequisites & Setup
+### Active directory domain
 
-CycleCloud can now simultaneously orchestrate environments described in ARM 
-templates.  This feature requires version 7.x release of CycleCloud.
+All HPC Pack nodes must be joined into an Active Directory Domain, if you don't have an AD domain yet in your virtual network, you can choose to create a new AD domain by promoting the head node as domain controller.
 
-This project relies on the [HPC Pack github](https://github.com/Azure/hpcpack-template-2016)
-in particular the DSC resources.  Project setup to download dependencies
-are [scripted](setup_project.sh).
+### Azure Key Vault Certificate and Secret
 
-A certificate for internal cluster communication is also [included](hpcpack/blobs/hpc-comm.pfx)
-and the certificate file password is the template default.  The certificate was
-created with the additional included [script](setup_cert.ps1) if you wish to
-create your own.
+HPC Pack cluster requires a certificate to secure the node communication. While you can directly specify a PFX file and protection password in the template, we recommend that you [create (or import) an Azure Key Vault certificate](https://docs.microsoft.com/powershell/high-performance-computing/deploy-an-hpc-pack-cluster-in-azure#create-azure-key-vault-certificate-on-azure-portal). You can also create an secret in the same Azure Key Vault to pass your user password securely.
 
-Once the project script has been executed you're ready to upload the project 
-to the configuration locker, import the cluster, and make cluster edits in the UI.
+### Azure User Assigned Managed Identity
 
-    cyclecloud project_upload
-    cyclecloud import_cluster HPCPack -c hpcpack -f hpcpack/templates/hpcpack_with_ad.txt
+If you decide to use Azure Key Vault to pass the certificate and user password, you need to create an Azure User Assigned Managed Identity, and grant it the 'Get' permission for both Secret and Certificate of the Azure Key Vault. The HPC Pack nodes will use this identity to fetch the certificate and user password from the Azure Key Vault.
 
+## Node Roles
+
+There are three node roles in this template, head node, broker nodes and compute nodes.
+
+- Head node: This template creates one head node with local databases.
+- Broker nodes: The "broker" node array is used to create HPC Pack broker nodes, if you want to run SOA workload, you can create one or more broker nodes in it.
+- Compute nodes: The "cn" node array is used to create HPC Pack compute nodes.
+
+
+## Autoscale
+
+You can enable autoscale for the cluster. The cluster is started only with the head node, when you submit jobs to the cluster, compute nodes will be created.
+There are two scale down options: Deallocate or Terminate.
+If you choose 'Deallocate' option, the compute node virtual machines will be deallocated on scale down, and the compute nodes will be taken offline and shown unreachable in HPC Pack cluster.
+If you choose 'Terminate' option, the compute node virtual machines will be removed on scale down, and the compute nodes will also be removed in HPC Pack cluster.
