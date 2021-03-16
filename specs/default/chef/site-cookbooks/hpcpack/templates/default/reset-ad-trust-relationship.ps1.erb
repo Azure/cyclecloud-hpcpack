@@ -1,6 +1,6 @@
 $secpasswd = ConvertTo-SecureString '<%= node['hpcpack']['ad']['admin']['password'] %>' -AsPlainText -Force
 $mycreds = New-Object System.Management.Automation.PSCredential ("<%= node['hpcpack']['ad']['admin']['name'] %>", $secpasswd)
 
-Reset-ComputerMachinePassword -Server <%= node['hpcpack']['ad']['dns1'] %> -Credential $mycreds -Verbose
+Reset-ComputerMachinePassword -Server <%= node['hpcpack']['ad']['dnsServer'] %> -Credential $mycreds -Verbose
 
 
