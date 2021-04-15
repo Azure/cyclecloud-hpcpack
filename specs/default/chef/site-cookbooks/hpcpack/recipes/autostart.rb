@@ -3,10 +3,10 @@
 # Recipe:: autostart
 #
 
-config_dir = "#{node[:cyclecloud][:home]}\\config"
+config_dir = "#{node['cyclecloud']['home']}\\config"
 bootstrap_dir = node['cyclecloud']['bootstrap']
 install_dir = "#{bootstrap_dir}/hpcpack-autoscaler-installer"
-install_pkg = "cyclecloud-hpcpack-pkg-1.2.0.zip"
+install_pkg = "#{node['hpcpack']['autoscaler']['package']}"
 
 # Default : c:\cycle\hpcpack-autoscaler
 autoscaler_dir="#{node[:cyclecloud][:home]}\\..\\hpcpack-autoscaler" 
