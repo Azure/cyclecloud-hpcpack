@@ -10,40 +10,11 @@ import hpc.autoscale.hpclogging as logging
 from hpc.autoscale.node.node import Node
 from hpc.autoscale.node.nodemanager import NodeManager, new_node_manager
 from hpc.autoscale.results import DefaultContextHandler, register_result_handler, BootupResult, ShutdownResult
-from hpc.autoscale.util import partition, partition_single
+from hpc.autoscale.util import partition, partition_single, load_config
 from .hpcpackdriver import HpcNode, HpcRestClient, GrowDecision
 from .commonutil import ci_equals, ci_find_one, ci_in, ci_notin, ci_interset, ci_lookup, make_dict, make_dict_single
 from .hpcnodehistory import HpcNodeHistory, NodeHistoryItem
 
-CONFIG_DEFAULTS = {
-    "logging": {
-        "config_file": "C:\\cycle\\jetpack\\config\\autoscale_logging.conf",
-    },
-    "min_counts": {
-        # Min. Instance Counts by NodeGroup name
-        # HPC Pack SOA requires a minimum of 1 core or job submission fails
-        "default": 1
-    },
-    "autoscale": {
-        "start_enabled": True,
-        "statefile": "C:\\cycle\\jetpack\\config\\autoscaler_state.txt",
-        "archivefile": "C:\\cycle\\jetpack\\config\\autoscaler_archive.txt", 
-        "vm_retention_days": 7,
-        "idle_time_after_jobs": 600,
-        "provisioning_timeout": 1500,
-    },
-    'hpcpack': {
-        "pem": "C:\\cycle\\jetpack\\config\\hpc-comm.pem",
-        "hn_hostname": "localhost",
-    },
-    'cyclecloud': {
-        "cluster_name": None,
-        "url": None, # "https://cyclecloud_url" or "https://ReturnProxy_ip:37140" when using ReturnProxy
-        "username": None,
-        "password": None,
-        "verify_certificates": False,
-    },
-}
 
 def autoscale_hpcpack(
     config: Dict[str, Any],
@@ -59,8 +30,8 @@ def autoscale_hpcpack(
         ctx_handler.set_context("[Sync-Status]")
     autoscale_config = config.get("autoscale") or {}
     # Load history info
-    idle_timeout_seconds:int = autoscale_config.get("idle_time_after_jobs") or 600    
-    provisioning_timeout_seconds = autoscale_config.get("provisioning_timeout") or 1500
+    idle_timeout_seconds:int = autoscale_config.get("idle_timeout") or 600    
+    provisioning_timeout_seconds = autoscale_config.get("boot_timeout") or 1500
     statefile = autoscale_config.get("statefile") or "C:\\cycle\\jetpack\\config\\autoscaler_state.txt"
     archivefile = autoscale_config.get("archivefile") or "C:\\cycle\\jetpack\\config\\autoscaler_archive.txt"
     node_history = HpcNodeHistory(
@@ -85,7 +56,7 @@ def autoscale_hpcpack(
             return (state_pri, name, int(index))
         except Exception:
             return (state_pri, n.name, 0)
-    node_mgr: NodeManager = new_node_manager(config['cyclecloud'])
+    node_mgr: NodeManager = new_node_manager(config)
     for b in node_mgr.get_buckets():
         b.nodes.sort(key=nodes_state_key)
     cc_nodes:List[Node] = node_mgr.get_nodes()
@@ -351,66 +322,14 @@ def autoscale_hpcpack(
         logging.info("Save node history: {}".format(node_history))
         node_history.save()
 
-  
-def load_config_defaults_from_jetpack() -> None:
-    jetpack_cmd = 'C:\cycle\jetpack\system\Bin\jetpack_wrapper.cmd'
-    if not os.path.exists(jetpack_cmd):
-        return
-    
-    global CONFIG_DEFAULTS    
-    try:
-        cluster_name = check_output([jetpack_cmd, "config", 'cyclecloud.cluster.name']).strip().decode()
-        CONFIG_DEFAULTS['cyclecloud']['cluster_name'] = cluster_name
-        url = check_output([jetpack_cmd, "config", 'cyclecloud.config.web_server']).strip().decode()
-        CONFIG_DEFAULTS['cyclecloud']['url'] = url
-        password = check_output([jetpack_cmd, "config", 'cyclecloud.config.password']).strip().decode()
-        CONFIG_DEFAULTS['cyclecloud']['password'] = password
-        username = check_output([jetpack_cmd, "config", 'cyclecloud.config.username']).strip().decode()
-        CONFIG_DEFAULTS['cyclecloud']['username'] = username
-    except CalledProcessError:
-        logging.warning("Failed to get cluster configuration from jetpack...")
-
-    try:        
-        autoscale_enabled = check_output([jetpack_cmd, "config", 'cyclecloud.cluster.autoscale.start_enabled']).strip().decode()
-        CONFIG_DEFAULTS['autoscale']['start_enabled'] = ci_equals(autoscale_enabled, "True")
-        autoscale_idle_time_after_jobs = check_output([jetpack_cmd, "config", 'cyclecloud.cluster.autoscale.idle_time_after_jobs']).strip().decode()
-        CONFIG_DEFAULTS['autoscale']['idle_time_after_jobs'] = int(autoscale_idle_time_after_jobs)
-        autoscale_provisioning_timeout = check_output([jetpack_cmd, "config", 'cyclecloud.cluster.autoscale.provisioning_timeout']).strip().decode()
-        CONFIG_DEFAULTS['autoscale']['provisioning_timeout'] = int(autoscale_provisioning_timeout)
-        autoscale_vm_retention_days = check_output([jetpack_cmd, "config", 'cyclecloud.cluster.autoscale.vm_retention_days']).strip().decode()
-        CONFIG_DEFAULTS['autoscale']['vm_retention_days'] = int(autoscale_vm_retention_days)
-    except CalledProcessError:
-        logging.warning("Failed to get cluster autoscale configuration from jetpack...")
-
-def load_autoscaler_config(
-    config_file: str
-) -> Dict[str, Any]:
-
-    from_file = {}
-    if os.path.exists(config_file):
-        with open(config_file, 'r') as f:
-            from_file = json.load(f)
-
-    # If we're running on a cluster node, then get connection info from jetpack
-    load_config_defaults_from_jetpack()
-
-    # Super trivial merge
-    config = dict(CONFIG_DEFAULTS)
-    config.update(from_file)
-    for key in CONFIG_DEFAULTS.keys():
-        if isinstance(CONFIG_DEFAULTS[key], dict) and key in from_file:
-            config[key] = dict(CONFIG_DEFAULTS[key])
-            config[key].update(from_file[key])
-    
-    return config
 
 def new_rest_client(
     config: Dict[str, Any]
 ) -> HpcRestClient:
 
     hpcpack_config = config.get('hpcpack') or {}    
-    hpc_pem_file = hpcpack_config.get('pem') or CONFIG_DEFAULTS['hpcpack']['pem']
-    hn_hostname = hpcpack_config.get('hn_hostname') or CONFIG_DEFAULTS['hpcpack']['hn_hostname']
+    hpc_pem_file = hpcpack_config.get('pem')
+    hn_hostname = hpcpack_config.get('hn_hostname')
     return HpcRestClient(config, pem=hpc_pem_file, hostname=hn_hostname)
 
 if __name__ == "__main__":
@@ -424,7 +343,7 @@ if __name__ == "__main__":
         dry_run = ci_in(sys.argv[2], ['true', 'dryrun'])
 
     ctx_handler = register_result_handler(DefaultContextHandler("[initialization]"))
-    config = load_autoscaler_config(config_file)
+    config = load_config(config_file)
     logging.initialize_logging(config)
     logging.info("------------------------------------------------------------------------")
     if config["autoscale"]["start_enabled"]:

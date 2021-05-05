@@ -10,7 +10,7 @@ from argparse import Namespace
 from subprocess import check_call
 from typing import List, Optional
 
-SCALELIB_VERSION = "0.2.0"
+SCALELIB_VERSION = "0.2.1"
 CYCLECLOUD_API_VERSION = "8.1.0"
 
 
@@ -36,8 +36,8 @@ def get_cycle_libs(args: Namespace) -> List[str]:
         CYCLECLOUD_API_VERSION
     )
 
-    #scalelib_url = "https://github.com/Azure/cyclecloud-scalelib/archive/{}.tar.gz".format(
-    scalelib_url = "https://suzhuhpcshare.blob.core.windows.net/testbuilds/cyclecloud-scalelib-{}.tar.gz".format(
+    scalelib_url = "https://github.com/Azure/cyclecloud-scalelib/archive/{}.tar.gz".format(
+    # scalelib_url = "https://suzhuhpcshare.blob.core.windows.net/testbuilds/cyclecloud-scalelib-{}.tar.gz".format(
         SCALELIB_VERSION
     )
     print("WARNING: \nWARNING: Downloading CycleCloud API tarball from GridEngine Project until first release...\nWARNING: ")
@@ -128,7 +128,7 @@ def execute() -> None:
         _add("packages/" + fil, path)
 
     _add("install.ps1")
-
+    _add("logging.conf", "hpcpack-autoscaler/logging.conf")
 
 if __name__ == "__main__":
     execute()

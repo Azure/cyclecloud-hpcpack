@@ -33,7 +33,7 @@ powershell_script 'unzip-HpcPackInstaller' do
     Copy-Item -Path "#{install_dir}\\setup\\HpcCompute_x64.msi" -Destination "#{install_dir}" -Force
   }
   else {
-    throw "Invalid Compute Node installer downloaded.  #{install_dir}\\HpcCompute_x64.msi or #{install_dir}\\Setup\\HpcCompute_x64.msi not found."
+    throw "Invalid Compute Node installer downloaded.  Neither HpcCompute_x64.msi nor Setup.exe was found."
   }
   EOH
   creates "#{install_dir}\\HpcCompute_x64.msi"

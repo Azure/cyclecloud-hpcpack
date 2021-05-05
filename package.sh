@@ -20,7 +20,7 @@ popd
 
 # Install uses nuget to install python3 on windows if not already installed
 # TODO: This won't work in locked down environments where nuget is blocked
-curl -k -L -o nuget.exe 'https://aka.ms/nugetclidl'
-mv 'nuget.exe' ./blobs/
+# curl -k -L -o nuget.exe 'https://aka.ms/nugetclidl'
+# mv 'nuget.exe' ./blobs/
 
 

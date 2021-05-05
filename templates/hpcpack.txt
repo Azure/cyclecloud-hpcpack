@@ -1,7 +1,7 @@
 ###########################
 ## Microsoft HPC Pack
 ###########################
-[cluster HPC Pack]
+[cluster Microsoft HPC Pack]
 FormLayout = selectionpanel
 Category = Schedulers
 IconUrl = https://suzhuhpcshare.blob.core.windows.net/testbuilds/Cluster115.png
@@ -86,10 +86,10 @@ Autoscale = $Autoscale
       PrivatePort = 9091
       PublicPort = 9091
 
-      [[[volume datadisk]]]
-      Size = 100
+      [[[volume boot]]]
+      Size = $HeadNodeBootDiskSize
       SSD = true
-      Azure.Lun = 0
+
 
    [[nodearray broker]]
    Extends = windowshpcnodes
@@ -97,8 +97,8 @@ Autoscale = $Autoscale
    ComputerNamePrefix = bn-
    ImageName =  $BrokerNodeImageName
    
-   # The initial number of cores of this type to start when the cluster starts
-   InitialCoreCount= 0
+   # The initial number of brokers to start
+   InitialCount = $InitialBrokerCount
 
    AdditionalClusterInitSpecs = $BrokerClusterInitSpecs
    
@@ -199,6 +199,23 @@ Order = 10
         ParameterType = Cloud.MachineType
         DefaultValue = Standard_F4s_v2
 
+        [[[parameter HeadNodeBootDiskSize]]]
+        Label = HN Disk Size (GB)
+        Description = The boot disk filesystem size
+        DefaultValue = 128
+        Config.Plugin = pico.form.NumberTextBox
+        Config.MinValue = 128
+        Config.MaxValue = 10240
+        Config.IntegerOnly = true
+
+        [[[parameter InitialBrokerCount]]]
+        Label = Num. Brokers
+        Description = The initial number of Broker nodes to start
+        DefaultValue = 0
+        Config.Plugin = pico.form.NumberTextBox
+        Config.MinValue = 0
+        Config.IntegerOnly = true
+        
     [[parameters Auto-Scaling]]
     Description = "The cluster can autoscale to the workload, adding compute nodes as jobs are queued. To enable this check the box below and choose the initial and maximum core counts for the cluster"
     Order = 30

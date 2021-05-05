@@ -25,11 +25,22 @@ powershell_script "Ensure TLS 1.2 for nuget" do
 end
 
 # Get the nuget binary as well
-jetpack_download "nuget.exe" do
+# first try jetpack download, then resort to web download (nuget is not part of the HPC Pack project release)
+jetpack_download "try_fetch_nuget_from_locker" do
   project "hpcpack"
   dest "#{node[:cyclecloud][:home]}/bin/nuget.exe"
+  ignore_failure true
   not_if { ::File.exists?("#{node[:cyclecloud][:home]}/bin/nuget.exe") }
 end
+ruby_block "try_fetch_nuget_from_web" do
+  block do
+    require 'open-uri'
+    download = open('https://aka.ms/nugetclidl')
+    IO.copy_stream(download, "#{node[:cyclecloud][:home]}/bin/nuget.exe")
+  end
+  not_if { ::File.exists?("#{node[:cyclecloud][:home]}/bin/nuget.exe") }
+end
+
 
 powershell_script "Install-NuGet" do
     code <<-EOH
