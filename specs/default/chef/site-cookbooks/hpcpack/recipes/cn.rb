@@ -32,6 +32,9 @@ powershell_script 'unzip-HpcPackInstaller' do
     Copy-Item -Path "#{install_dir}\\MPI\\MSMpiSetup.exe" -Destination "#{install_dir}" -Force
     Copy-Item -Path "#{install_dir}\\setup\\HpcCompute_x64.msi" -Destination "#{install_dir}" -Force
   }
+  elseif(Test-Path "#{install_dir}\setup.exe") {
+    echo "Assuming HPC Pack 2016 installer..."
+  }
   else {
     throw "Invalid Compute Node installer downloaded.  Neither HpcCompute_x64.msi nor Setup.exe was found."
   }
