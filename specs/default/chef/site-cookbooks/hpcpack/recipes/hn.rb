@@ -1,98 +1,75 @@
 include_recipe "hpcpack::_get_secrets"
-include_recipe "hpcpack::_ps"
-include_recipe "hpcpack::_join-ad-domain"
+include_recipe "hpcpack::_common"
+include_recipe "hpcpack::_join-ad-domain" if node['hpcpack']['headNodeAsDC'] == false
+include_recipe "hpcpack::_new-ad-domain" if node['hpcpack']['headNodeAsDC']
 
 bootstrap_dir = node['cyclecloud']['bootstrap']
-mod_dir = "#{bootstrap_dir}\\installHpcSingleHeadNode"
-hpcpack2012_dir = "#{bootstrap_dir}\\hpcpack2012"
-dsc_script = "InstallHpcSingleHeadNode.ps1"
-modules_dir = "C:\\Program\ Files\\WindowsPowerShell\\Modules"
 
-directory mod_dir
-directory hpcpack2012_dir
-
-
-[
-   'xPSDesiredStateConfiguration'
-].each do |feature|
-   powershell_script "Uninstall #{feature} headnode" do
-       code "Uninstall-Module -Name #{feature} -Force"
-       only_if "(Get-Module #{feature} -ListAvailable)"
-   end
+cookbook_file "#{bootstrap_dir}\\InstallHPCHeadNode.ps1" do
+  source "InstallHPCHeadNode.ps1"
+  action :create
 end
 
-cookbook_file "#{bootstrap_dir}\\#{dsc_script}.zip" do
-   source "#{dsc_script}.zip"
-   action :create
+powershell_script "Ensure TLS 1.2 for nuget" do
+  code <<-EOH
+  Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\.NetFramework\\v4.0.30319' -Name 'SchUseStrongCrypto' -Value '1' -Type DWord
+  if(Test-Path 'HKLM:\\SOFTWARE\\Wow6432Node\\Microsoft\\.NetFramework\\v4.0.30319')
+  {
+    Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Wow6432Node\\Microsoft\\.NetFramework\\v4.0.30319' -Name 'SchUseStrongCrypto' -Value '1' -Type DWord
+  }
+  EOH
+  not_if <<-EOH
+    $strongCrypo = Get-ItemProperty "HKLM:\\SOFTWARE\\Microsoft\\.NetFramework\\v4.0.30319" -ErrorAction SilentlyContinue | Select -Property SchUseStrongCrypto
+    $strongCrypo -and ($strongCrypo.SchUseStrongCrypto -eq 1)
+  EOH
 end
 
-cookbook_file "#{hpcpack2012_dir}\\HPCHNPrepare.ps1" do
-   source "hpcpack2012/HPCHNPrepare.ps1"
-   action :create
+# Get the nuget binary as well
+# first try jetpack download, then resort to web download (nuget is not part of the HPC Pack project release)
+jetpack_download "try_fetch_nuget_from_locker" do
+  project "hpcpack"
+  dest "#{node[:cyclecloud][:home]}/bin/nuget.exe"
+  ignore_failure true
+  not_if { ::File.exists?("#{node[:cyclecloud][:home]}/bin/nuget.exe") }
+end
+ruby_block "try_fetch_nuget_from_web" do
+  block do
+    require 'open-uri'
+    download = open('https://aka.ms/nugetclidl')
+    IO.copy_stream(download, "#{node[:cyclecloud][:home]}/bin/nuget.exe")
+  end
+  not_if { ::File.exists?("#{node[:cyclecloud][:home]}/bin/nuget.exe") }
 end
 
-cookbook_file "#{hpcpack2012_dir}\\PrepareHN.ps1" do
-   source "hpcpack2012/PrepareHN.ps1"
-   action :create
-end
 
-powershell_script 'unzip-InstallHpcSingleHeadNode' do
-    code "#{bootstrap_dir}\\unzip.ps1 #{bootstrap_dir}\\#{dsc_script}.zip #{mod_dir}"
-    creates "#{mod_dir}\\#{dsc_script}"
-end
-
-
-powershell_script 'set-dsc-InstallHpcSingleHeadNode' do
+powershell_script "Install-NuGet" do
     code <<-EOH
-    $Acl = Get-Acl "#{modules_dir}"
-    Set-Acl "#{mod_dir}" $Acl
-    $oModPath = [Environment]::GetEnvironmentVariable("PSModulePath", "Machine")
-    [Environment]::SetEnvironmentVariable("PSModulePath", $oModPath + ";" + $pwd, "Machine")
-    $env:PSModulePath = $env:PSModulePath + ";" + $pwd
-    $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2
-    $cert.Import("#{node['jetpack']['downloads']}\\#{node['hpcpack']['cert']['filename']}","#{node['hpcpack']['cert']['password']}","DefaultKeySet")
-    $secpasswd = ConvertTo-SecureString "#{node['hpcpack']['ad']['admin']['password']}" -AsPlainText -Force
-    $mycreds = New-Object System.Management.Automation.PSCredential ('#{node['hpcpack']['ad']['domain']}\\#{node['hpcpack']['ad']['admin']['name']}', $secpasswd)
-    $cd = @{
-        AllNodes = @(
-            @{
-                NodeName = 'localhost'
-                PSDscAllowPlainTextPassword = $true
-                PSDscAllowDomainUser = $true
-            }
-        )}
-
-    . .\\InstallHpcSingleHeadNode.ps1
-    InstallHpcSingleHeadNode -SetupUserCredential $mycreds `
-         -SSLThumbprint $cert.Thumbprint -ConfigurationData $cd
-    Start-DscConfiguration .\\InstallHpcSingleHeadNode -Wait -Force -Verbose
-    [Environment]::SetEnvironmentVariable("PSModulePath", $oModPath, "Machine")
-    $env:PSModulePath = $oModPath
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
     EOH
-    cwd mod_dir
+    only_if <<-EOH
+      [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+      !(Get-PackageProvider NuGet -ListAvailable)
+    EOH
+end
+
+powershell_script 'Install-HpcSingleHeadNode' do
+    code <<-EOH
+    $secpasswd = ConvertTo-SecureString '#{node['hpcpack']['ad']['admin']['password']}' -AsPlainText -Force
+    $domainCred = New-Object System.Management.Automation.PSCredential ("#{node['hpcpack']['ad']['domain']}\\#{node['hpcpack']['ad']['admin']['name']}", $secpasswd)
+    $vaultName = "#{node['hpcpack']['keyvault']['vault_name']}"
+    $vaultCertName = "#{node['hpcpack']['keyvault']['cert']['cert_name']}"
+    if($vaultName -and $vaultCertName) {
+      #{bootstrap_dir}\\InstallHPCHeadNode.ps1 -ClusterName $env:ComputerName -VaultName $vaultName -VaultCertName $vaultCertName -SetupCredential $domainCred
+    }
+    else {
+      $seccertpasswd = ConvertTo-SecureString '#{node['hpcpack']['cert']['password']}' -AsPlainText -Force
+      #{bootstrap_dir}\\InstallHPCHeadNode.ps1 -ClusterName $env:ComputerName -PfxFilePath "#{node['jetpack']['downloads']}\\#{node['hpcpack']['cert']['filename']}" -PfxFilePassword $seccertpasswd -SetupCredential $domainCred
+    }
+    EOH
+    user "#{node['hpcpack']['ad']['domain']}\\#{node['hpcpack']['ad']['admin']['name']}"
+    password "#{node['hpcpack']['ad']['admin']['password']}"
     not_if 'Get-Service "HpcManagement"  -ErrorAction SilentlyContinue'
 end
 
-powershell_script 'HPCPack2012-PrepareHN' do
-    code <<-EOH
-    # Could use node['fqdn'], but might not work with multiple interfaces?
-    $fqdn = '#{node['hostname']}.#{node['hpcpack']['ad']['domain']}'
-    $base64Password = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes('#{node['hpcpack']['ad']['admin']['password']}'))
-    powershell.exe -ExecutionPolicy Unrestricted -File "#{hpcpack2012_dir}\\PrepareHN.ps1" -DomainFQDN $fqdn -PublicDnsName $fqdn -AdminUserName "#{node['hpcpack']['ad']['admin']['name']}" -AdminBase64Password "$base64Password" > "#{hpcpack2012_dir}\\PrepareHN.log"
-    EOH
-    cwd hpcpack2012_dir
-    only_if 'Add-PsSnapin Microsoft.HPC; (Get-Command Get-HpcNode).Version.Major -lt 5'
-end
-
-
 include_recipe "hpcpack::autostart" if node['cyclecloud']['cluster']['autoscale']['start_enabled']
-
-powershell_script 'Set HPC Pack Configuration' do
-    code <<-EOH
-    Add-PsSnapin Microsoft.HPC
-
-    Set-HpcClusterProperty -HeartbeatInterval #{node['hpcpack']['config']['HeartbeatInterval']} -InactivityCount #{node['hpcpack']['config']['InactivityCount']}
-
-    EOH
-end
-

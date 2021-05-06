@@ -1,195 +1,135 @@
 include_recipe "hpcpack::_get_secrets"
-include_recipe "hpcpack::_ps"
-include_recipe "hpcpack::_join-ad-domain"
+include_recipe "hpcpack::_common"
 include_recipe "hpcpack::_find-hn"
+include_recipe "hpcpack::_join-ad-domain"
+include_recipe "hpcpack::_install_dotnetfx"
 
 bootstrap_dir = node['cyclecloud']['bootstrap']
-mod_dir = "#{bootstrap_dir}\\modHpcPack"
-hpcpack2012_dir = "#{bootstrap_dir}\\hpcpack2012"
-dsc_script = "ConfigHpcNode.ps1"
-modules_dir = "C:\\Program\ Files\\WindowsPowerShell\\Modules"
+install_dir = "#{bootstrap_dir}\\hpcpack"
 
+directory install_dir
 
-#xSystemSecurity 1.3 doesn't work
-
-directory mod_dir
-directory hpcpack2012_dir
-
-
-cookbook_file "#{bootstrap_dir}\\#{dsc_script}.zip" do
-   source "#{dsc_script}.zip"
-   action :create
+cookbook_file "#{bootstrap_dir}\\InstallHPCComputeNode.ps1" do
+  source "InstallHPCComputeNode.ps1"
+  action :create
 end
 
-cookbook_file "#{hpcpack2012_dir}\\SetupComplete2.mods.cmd" do
-   source "hpcpack2012/SetupComplete2.mods.cmd"
-   action :create
+jetpack_download node['hpcpack']['cn']['installer_filename'] do
+  project "hpcpack"
+  ignore_failure true
+  not_if { ::File.exists?("#{node['jetpack']['downloads']}/#{node['hpcpack']['cn']['installer_filename']}") || ::File.exists?("#{install_dir}/HpcCompute_x64.msi") || ::File.exists?("#{install_dir}/Setup.exe")}
 end
 
-
-powershell_script 'unzip-xHpcPack' do
-    code "#{bootstrap_dir}\\unzip.ps1 #{bootstrap_dir}\\#{dsc_script}.zip #{mod_dir}"
-    creates "#{mod_dir}\\#{dsc_script}"
-end
-
-powershell_script 'set-dsc-InstallHpcNode' do
-    code <<-EOH
-    $Acl = Get-Acl "#{modules_dir}"
-    Set-Acl "#{mod_dir}" $Acl
-    $oModPath = [Environment]::GetEnvironmentVariable("PSModulePath", "Machine")
-    [Environment]::SetEnvironmentVariable("PSModulePath", $oModPath + ";" + $pwd, "Machine")
-    $env:PSModulePath = $env:PSModulePath + ";" + $pwd
-    $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2
-    $cert.Import('#{node['jetpack']['downloads']}\\#{node['hpcpack']['cert']['filename']}','#{node['hpcpack']['cert']['password']}','DefaultKeySet')
-    $secpasswd = ConvertTo-SecureString '#{node['hpcpack']['ad']['admin']['password']}' -AsPlainText -Force
-    $mycreds = New-Object System.Management.Automation.PSCredential ('#{node['hpcpack']['ad']['admin']['name']}', $secpasswd)
-    $cd = @{
-        AllNodes = @(
-            @{
-                NodeName = 'localhost'
-                PSDscAllowPlainTextPassword = $true
-                PSDscAllowDomainUser = $true
-            }
-        )}
-
-    . .\\ConfigHpcNode.ps1
-    ConfigHpcNode -DomainName "#{node['hpcpack']['ad']['domain']}" -RetryCount 2 -RetryIntervalSec 10 `
-      -NodeType ComputeNode -HeadNodeList #{node['hpcpack']['hn']['hostname']} `
-      -SSLThumbprint $cert.Thumbprint -PostConfigScript "" -AdminCreds $mycreds `
-      -ConfigurationData $cd
-    Start-DscConfiguration .\\ConfigHpcNode -Wait -Force -Verbose 
-    [Environment]::SetEnvironmentVariable("PSModulePath", $oModPath, "Machine")
-    $env:PSModulePath = $oModPath
-    EOH
-    cwd mod_dir
-    not_if '(Get-Service "HpcManagement" -ErrorAction SilentlyContinue).Status -eq "Running"'
-end
-
-# The main guard for this script is internal - it checks if clustername matches the registry setting
-powershell_script "register-hpcpack2k12-node" do
+# Allow either basic CN installer or full installer
+powershell_script 'unzip-HpcPackInstaller' do
   code <<-EOH
-  cmd.exe /c "#{hpcpack2012_dir}\\SetupComplete2.mods.cmd" "#{node['hpcpack']['hn']['hostname']}"
+  #{bootstrap_dir}\\unzip.ps1 #{node['jetpack']['downloads']}/#{node['hpcpack']['cn']['installer_filename']} #{install_dir}
+  if(Test-Path "#{install_dir}\\HpcCompute_x64.msi") {
+    echo "Installing #{install_dir}\\HpcCompute_x64.msi"
+  }
+  elseif(Test-Path "#{install_dir}\\setup\\HpcCompute_x64.msi") {
+    Copy-Item -Path "#{install_dir}\\amd64\\SSCERuntime_x64-ENU.exe" -Destination "#{install_dir}" -Force
+    Copy-Item -Path "#{install_dir}\\MPI\\MSMpiSetup.exe" -Destination "#{install_dir}" -Force
+    Copy-Item -Path "#{install_dir}\\setup\\HpcCompute_x64.msi" -Destination "#{install_dir}" -Force
+  }
+  elseif(Test-Path "#{install_dir}\setup.exe") {
+    echo "Assuming HPC Pack 2016 installer..."
+  }
+  else {
+    throw "Invalid Compute Node installer downloaded.  Neither HpcCompute_x64.msi nor Setup.exe was found."
+  }
   EOH
-  cwd hpcpack2012_dir
-  only_if 'Add-PsSnapin Microsoft.HPC; (Get-Command Get-HpcNode).Version.Major -lt 5'
+  creates "#{install_dir}\\HpcCompute_x64.msi"
+  ignore_failure true
+  not_if { ::File.exists?("#{install_dir}/HpcCompute_x64.msi")}
 end
 
-# Also override the default method (it seemed to re-run and break the connection between HN and CN)
-# file "#{ENV['SystemRoot']}\\OEM\\SetupComplete2.cmd" do
-file "C:\\Windows\\OEM\\SetupComplete2.cmd" do
-  content <<-EOH
-cmd.exe /c "#{hpcpack2012_dir}\\SetupComplete2.mods.cmd #{node['hpcpack']['hn']['hostname']}"
-
-EOH
+# If we failed to download HpcPackInstaller, we will try to copy from head node
+powershell_script 'Copy-HpcPackInstaller' do
+  code  <<-EOH
+  $reminst = "\\\\#{node['hpcpack']['hn']['hostname']}\\REMINST"
+  $retry = 0
+  While($true) {
+    if(Test-Path "$reminst\\Setup.exe") {
+      if(Test-Path "$reminst\\Setup\\HpcCompute_x64.msi") {
+        Copy-Item -Path "$reminst\\amd64\\SSCERuntime_x64-ENU.exe" -Destination "#{install_dir}" -Force
+        Copy-Item -Path "$reminst\\MPI\\MSMpiSetup.exe" -Destination "#{install_dir}" -Force
+        Copy-Item -Path "$reminst\\Setup\\HpcCompute_x64.msi" -Destination "#{install_dir}" -Force
+      }
+      else {
+        New-Item "#{install_dir}\\amd64" -ItemType Directory -Force
+        New-Item "#{install_dir}\\i386" -ItemType Directory -Force
+        New-Item "#{install_dir}\\MPI" -ItemType Directory -Force
+        New-Item "#{install_dir}\\Setup" -ItemType Directory -Force
+        Copy-Item -Path "$reminst\\amd64\\*" -Destination "#{install_dir}\\amd64" -Force
+        Copy-Item -Path "$reminst\\i386\\vcredist_x86.exe" -Destination "#{install_dir}\\i386\\" -Force
+        Copy-Item -Path "$reminst\\MPI\\*" -Destination "#{install_dir}\\MPI" -Force
+        Copy-Item -Path "$reminst\\Setup\\*" -Destination "#{install_dir}\\Setup" -Recurse -Force -Exclude @('*_x86.msi', 'HpcKsp*')
+        Copy-Item -Path "$reminst\\Setup.exe" -Destination "#{install_dir}" -Force
+      }
+      break
+    }
+    elseif($retry++ -lt 50) {
+      start-sleep -seconds 20
+    }
+    else {
+      throw "head node not available"
+    }
+  }
+  EOH
+  creates "#{install_dir}\\Setup.exe"
+  not_if { ::File.exists?("#{install_dir}/HpcCompute_x64.msi") || ::File.exists?("#{install_dir}/Setup.exe")}
 end
 
-powershell_script 'add-to-NodeTemplate' do
+# Install Hpc Compute Node
+# Install logs will end up in : C:\Windows\Temp\HPCSetupLogs\HPCSetupLogs*\chainer.txt
+powershell_script 'install-hpcpack' do
+  code <<-EOH
+  $vaultName = "#{node['hpcpack']['keyvault']['vault_name']}"
+  $vaultCertName = "#{node['hpcpack']['keyvault']['cert']['cert_name']}"
+  $setupFilePath = "#{install_dir}\\HpcCompute_x64.msi"
+  if(!(Test-Path $setupFilePath)) {
+    $setupFilePath = "#{install_dir}\\Setup.exe"
+  }
+  if($vaultName -and $vaultCertName) {
+    #{bootstrap_dir}\\InstallHPCComputeNode.ps1 -SetupFilePath "#{install_dir}\\HpcCompute_x64.msi" -ClusterConnectionString #{node['hpcpack']['hn']['hostname']} -VaultName $vaultName -VaultCertName $vaultCertName
+  }
+  else {
+    $secpasswd = ConvertTo-SecureString '#{node['hpcpack']['cert']['password']}' -AsPlainText -Force
+    #{bootstrap_dir}\\InstallHPCComputeNode.ps1 -SetupFilePath "#{install_dir}\\HpcCompute_x64.msi" -ClusterConnectionString #{node['hpcpack']['hn']['hostname']} -PfxFilePath "#{node['jetpack']['downloads']}\\#{node['hpcpack']['cert']['filename']}" -PfxFilePassword $secpasswd
+  }
+  EOH
+  not_if <<-EOH
+  $hpcRegValues = Get-Item HKLM:\\SOFTWARE\\Microsoft\\HPC -ErrorAction SilentlyContinue | Get-ItemProperty | Select-Object -Property ClusterConnectionString
+  ($hpcRegValues -and ($hpcRegValues.ClusterConnectionString -eq "#{node['hpcpack']['hn']['hostname']}"))
+  EOH
+end
+
+# Auto assign the node to "Default ComputeNode Template" and add to the node group "CycleCloudNodes"
+# Ideally it shall be done in the autoscaler
+powershell_script 'assign-NodeTemplate' do
     code <<-EOH
+    $env:CCP_LOGROOT_USR = "%LOCALAPPDATA%\\Microsoft\\Hpc\\LogFiles\\"
     Add-PsSnapin Microsoft.HPC
-    Set-Content Env:CCP_SCHEDULER "#{node['hpcpack']['hn']['hostname']}"
-    $this_node = Get-HpcNode -Name (hostname) -Scheduler #{node['hpcpack']['hn']['hostname']}
-    if ($this_node.HealthState -eq "Unapproved") { 
-        Assign-HpcNodeTemplate -NodeName (hostname) `
-            -Name "Default ComputeNode Template" -Confirm:$false `
-            -Scheduler #{node['hpcpack']['hn']['hostname']}
+    $headNodeName = "#{node['hpcpack']['hn']['hostname']}"
+    Set-Content Env:CCP_SCHEDULER $headNodeName
+    $retry = 0
+    $this_node = Get-HpcNode -Name $env:COMPUTERNAME -Scheduler $headNodeName -ErrorAction SilentlyContinue
+    while ($null -eq $this_node) {
+      if($retry++ -lt 20) {
+        Start-Sleep -Seconds 3
+        $this_node = Get-HpcNode -Name $env:COMPUTERNAME -Scheduler $headNodeName -ErrorAction SilentlyContinue
+      } else {
+        throw "Node not shown in the HPC cluster."
+      }
+    }
+    if ($this_node.HealthState -eq "Unapproved") {
+        Assign-HpcNodeTemplate -NodeName $env:COMPUTERNAME -Name "Default ComputeNode Template" -Confirm:$false -Scheduler $headNodeName
     }
     EOH
     domain node['hpcpack']['ad']['domain']
     user node['hpcpack']['ad']['admin']['name']
     password node['hpcpack']['ad']['admin']['password']
-    retries 3
+    retries 2
     retry_delay 5
-#    not_if 'Add-PsSnapin Microsoft.HPC; (Get-Command Get-HpcNode).Version.Major -lt 5'
-end
-
-
-powershell_script 'set-node-location' do
-    code <<-EOH
-    Add-PsSnapin Microsoft.HPC
-    Set-Content Env:CCP_SCHEDULER "#{node['hpcpack']['hn']['hostname']}"
-    $this_node = Get-HpcNode -Name (hostname) -Scheduler #{node['hpcpack']['hn']['hostname']}
-    if ($this_node.Location -eq "") {
-        Set-HPCNode -Name (hostname) -DataCenter #{node['cyclecloud']['node']['group_id']} `
-            -Rack #{node['cyclecloud']['instance']['id']} `
-            -Scheduler #{node['hpcpack']['hn']['hostname']} -Verbose
-    }
-    EOH
-    domain node['hpcpack']['ad']['domain']
-    user node['hpcpack']['ad']['admin']['name']
-    password node['hpcpack']['ad']['admin']['password']
-    retries 3
-    retry_delay 5
-end
-
-# HPC Pack 2012 has a bug which requires nodes to be in the Offline state for several seconds before
-# they can be brought online (fixed in 2016).  So sleep for a bit...
-log "Waiting for HPC worker node to reach Offline state..." do level :info end
-powershell_script 'wait-for-offline-state' do
-    code <<-EOH
-    Add-PsSnapin Microsoft.HPC
-    Set-Content Env:CCP_SCHEDULER "#{node['hpcpack']['hn']['hostname']}"
-    $this_node = Get-HpcNode -Name (hostname) -Scheduler #{node['hpcpack']['hn']['hostname']}
-
-    echo "Waiting for HPC worker node to reach Offline state... Current state: $this_node.NodeState"
-    $tries=0
-    while ( "Offline" -ne $this_node.NodeState ) {
-        $tries += 1
-        if($tries -gt '1'){
-            throw "Timed out waiting for Offline state.  Node $env:COMPUTERNAME is still in state: $this_node.NodeState"
-        }
-        start-sleep -s 10
-    }
-
-    echo "Node $env:COMPUTERNAME has reached state: $this_node.NodeState.   Adding delay for HPC Pack 2012 registration issue..."
-    start-sleep -s 10
-    EOH
-    domain node['hpcpack']['ad']['domain']
-    user node['hpcpack']['ad']['admin']['name']
-    password node['hpcpack']['ad']['admin']['password']
-    retries 10
-    retry_delay 5
-    only_if "Add-PsSnapin Microsoft.HPC; 'Online' -ne (Get-HpcNode -Name (hostname) -Scheduler #{node['hpcpack']['hn']['hostname']}).NodeState  -and (Get-Command Get-HpcNode).Version.Major -lt 5"
-end
-
-
-defer_block "Defer bringing node Online until end of converge" do
-
-    powershell_script 'bring-node-online' do
-        code <<-EOH
-        Add-PsSnapin Microsoft.HPC
-        Set-Content Env:CCP_SCHEDULER "#{node['hpcpack']['hn']['hostname']}"
-        $this_node = Get-HpcNode -Name (hostname) -Scheduler #{node['hpcpack']['hn']['hostname']}
-        if ( "Online" -ne $this_node.NodeState ) {
-            echo "Bringing HPC worker node online..."
-            Set-HpcNodeState -Name (hostname) -Scheduler #{node['hpcpack']['hn']['hostname']} `
-                -State Online -Verbose
-        }
-        EOH
-        domain node['hpcpack']['ad']['domain']
-        user node['hpcpack']['ad']['admin']['name']
-        password node['hpcpack']['ad']['admin']['password']
-        retries 3
-        retry_delay 5
-    end
-
-    # Re-add the node periodically if it loses AD connectivity (TODO: why is this so common?)
-    template "#{bootstrap_dir}\\bring-hpc-node-online.ps1" do
-      source "bring-hpc-node-online.ps1.erb"
-    end
-    template "#{bootstrap_dir}\\bring-hpc-node-online-logging-wrapper.ps1" do
-      source "bring-hpc-node-online-logging-wrapper.ps1.erb"
-    end
-
-
-    windows_task 'hpc-verify-node-online' do
-        task_name "HPCNodeVerifyOnline"
-        command   "powershell.exe -file #{bootstrap_dir}\\bring-hpc-node-online-logging-wrapper.ps1"
-        user      "#{node['hpcpack']['ad']['domain']}\\#{node['hpcpack']['ad']['admin']['name']}"
-        password  node['hpcpack']['ad']['admin']['password']
-        frequency :minute
-        frequency_modifier 5
-        #only_if { node['cyclecloud']['cluster']['autoscale']['start_enabled'] }
-    end
-
-
 end

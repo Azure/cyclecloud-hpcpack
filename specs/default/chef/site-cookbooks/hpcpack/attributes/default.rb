@@ -1,6 +1,8 @@
-default['hpcpack']['ad']['dns1'] = "10.0.0.4"
-default['hpcpack']['ad']['dns2'] = "8.8.8.8"
+default['hpcpack']['ad']['dnsServer'] = nil
 default['hpcpack']['hn']['hostname'] = nil
+
+# HPC Pack Autoscaling configuration
+default['hpcpack']['autoscaler']['package'] = "cyclecloud-hpcpack-pkg-1.2.0.zip"
 
 # HPC Pack Configuration options
 default['hpcpack']['config']['HeartbeatInterval'] = 30
@@ -12,15 +14,15 @@ default['hpcpack']['keyvault']['vault_name'] = nil
 default['hpcpack']['keyvault']['admin']['name_key'] = nil
 default['hpcpack']['keyvault']['admin']['password_key'] = nil
 default['hpcpack']['keyvault']['cert']['password_key'] = nil
+default['hpcpack']['keyvault']['cert']['cert_name'] = nil
 
 default['hpcpack']['ad']['admin']['name'] = nil
 default['hpcpack']['ad']['admin']['password'] = nil
+default['hpcpack']['cert']['filename'] = nil
+default['hpcpack']['cert']['password'] = nil
 
 # HPC Pack SOA jobs tend to fail if there are 0 cores when submitted
 default['hpcpack']['min_node_count'] = 1
-
-# Enable auto-stop to de-allocated rather than terminated
-default['hpcpack']['autoscale']['deallocate'] = true
 
 default['hpcpack']['job']['default_runtime']['hr'] = 1
 default['hpcpack']['job']['default_runtime']['min'] = 0
@@ -34,11 +36,6 @@ default['hpcpack']['job']['add_node_threshold']['sec'] = 0
 default['hpcpack']['hn']['role'] = nil
 default['hpcpack']['hn']['recipe'] = "hpcpack::hn"
 default['hpcpack']['hn']['clusterUID'] = nil
-
-default['hpcpack']['cert']['filename'] = "hpc-comm.pfx" 
-default['hpcpack']['cert']['password'] = ""
-
-default['hpcpack']['install_logviewer'] = false
 
 # Allow users to uninstall specific windows updates (some apps haven't been ported to latest sec. updates)
 default['hpcpack']['uninstall_updates'] = []
