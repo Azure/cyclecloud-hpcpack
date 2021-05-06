@@ -20,11 +20,28 @@ jetpack_download node['hpcpack']['cn']['installer_filename'] do
   not_if { ::File.exists?("#{node['jetpack']['downloads']}/#{node['hpcpack']['cn']['installer_filename']}") || ::File.exists?("#{install_dir}/HpcCompute_x64.msi") || ::File.exists?("#{install_dir}/Setup.exe")}
 end
 
+# Allow either basic CN installer or full installer
 powershell_script 'unzip-HpcPackInstaller' do
-  code "#{bootstrap_dir}\\unzip.ps1 #{node['jetpack']['downloads']}/#{node['hpcpack']['cn']['installer_filename']} #{install_dir}"
+  code <<-EOH
+  #{bootstrap_dir}\\unzip.ps1 #{node['jetpack']['downloads']}/#{node['hpcpack']['cn']['installer_filename']} #{install_dir}
+  if(Test-Path "#{install_dir}\\HpcCompute_x64.msi") {
+    echo "Installing #{install_dir}\\HpcCompute_x64.msi"
+  }
+  elseif(Test-Path "#{install_dir}\\setup\\HpcCompute_x64.msi") {
+    Copy-Item -Path "#{install_dir}\\amd64\\SSCERuntime_x64-ENU.exe" -Destination "#{install_dir}" -Force
+    Copy-Item -Path "#{install_dir}\\MPI\\MSMpiSetup.exe" -Destination "#{install_dir}" -Force
+    Copy-Item -Path "#{install_dir}\\setup\\HpcCompute_x64.msi" -Destination "#{install_dir}" -Force
+  }
+  elseif(Test-Path "#{install_dir}\setup.exe") {
+    echo "Assuming HPC Pack 2016 installer..."
+  }
+  else {
+    throw "Invalid Compute Node installer downloaded.  Neither HpcCompute_x64.msi nor Setup.exe was found."
+  }
+  EOH
   creates "#{install_dir}\\HpcCompute_x64.msi"
   ignore_failure true
-  not_if { ::File.exists?("#{install_dir}/HpcCompute_x64.msi") || ::File.exists?("#{install_dir}/Setup.exe")}
+  not_if { ::File.exists?("#{install_dir}/HpcCompute_x64.msi")}
 end
 
 # If we failed to download HpcPackInstaller, we will try to copy from head node
