@@ -156,6 +156,11 @@ Order = 1
             For more information see <a href="https://docs.microsoft.com/powershell/high-performance-computing/overview" target="_blank">Microsoft HPC Pack overview</a>.
         </p>
     </td></tr>
+    <tr><td>
+        <p>
+            Follow the instructions in the <a href=\"https://github.com/azure/cyclecloud-hpcpack/\" target=\"_blank\">README</a> for details on instructions on extending and configuring the Project for your environment.
+        </p>
+    </td></tr>
 </table>'''
 
 [parameters Basic Settings]

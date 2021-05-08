@@ -32,6 +32,8 @@ If you decide to use Azure Key Vault to pass the certificate and user password, 
 
 You can follow the instruction in the [Key Vault documentation](https://docs.microsoft.com/azure/active-directory/managed-identities-azure-resources/tutorial-windows-vm-access-nonaad) to create your Key Vault and a Managed Identity with Key Vault access.
 
+We recommend using [Azure Role-Based Access Control](https://docs.microsoft.com/azure/key-vault/general/rbac-guide?tabs=azure-cli) to assign Key Vault permissions to the Managed Identity.
+
 # Node Roles
 
 There are three node roles in this template, head node, broker nodes and compute nodes.
