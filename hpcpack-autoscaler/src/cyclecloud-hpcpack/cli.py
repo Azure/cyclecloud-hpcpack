@@ -113,6 +113,22 @@ class HpcPackCLI(clilib.CommonCLI):
     def shell(config: Dict, shell_locals: Dict[str, Any], script: Optional[str],) -> None:
         return super().shell(config, shell_locals, script)
 
+    @clilib.disablecommand
+    def join_nodes(
+        self, config: Dict, hostnames: List[str], node_names: List[str]
+    ) -> None:
+        return super().join_nodes(config, hostnames, node_names)
+
+    @clilib.disablecommand
+    def remove_nodes(
+        self,
+        config: Dict,
+        hostnames: List[str],
+        node_names: List[str],
+        force: bool = False,
+    ) -> None:
+        return super().remove_nodes(config, hostnames, node_names, force)
+
     def autoscale(
         self,
         config: Dict,

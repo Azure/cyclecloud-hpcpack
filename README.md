@@ -69,11 +69,9 @@ The CLI can be used to diagnose issues with autoscaling or to manually control c
 | default_output_columns | Output what are the default output columns for an optional command. |
 | delete_nodes         | Deletes node, including draining post delete handling |
 | initconfig           | Creates an initial autoscale config. Writes to stdout |
-| join_nodes           | Adds selected nodes to the scheduler |
 | limits               | Writes a detailed set of limits for each bucket. Defaults to json due to number of fields. |
 | nodes                | Query nodes |
 | refresh_autocomplete | Refreshes local autocomplete information for cluster specific resources and nodes. |
-| remove_nodes         | Removes the node from the scheduler without terminating the actual instance. |
 | retry_failed_nodes   | Retries all nodes in a failed state. |
 | validate_constraint  | Validates then outputs as json one or more constraints. |
 
