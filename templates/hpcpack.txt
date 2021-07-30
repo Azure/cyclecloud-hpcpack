@@ -4,7 +4,6 @@
 [cluster Microsoft HPC Pack]
 FormLayout = selectionpanel
 Category = Schedulers
-IconUrl = https://suzhuhpcshare.blob.core.windows.net/testbuilds/Cluster115.png
 Autoscale = $Autoscale
 
    [[node defaults]]
