@@ -19,7 +19,6 @@ ParameterValues.apiVersion = "2016-12-01"
 [cluster adserver]
 FormLayout = selectionpanel
 Category = Infrastructure
-IconUrl = http://download.cyclecomputing.com/logos/microsoft-192x192.png
 
 
    [[node defaults]]
@@ -70,7 +69,7 @@ IconUrl = http://download.cyclecomputing.com/logos/microsoft-192x192.png
    Azure.Identities = $ManagedServiceIdentity
    
 
-      [[[cluster-init hpcpack:default:1.2.0]]]
+      [[[cluster-init hpcpack:default]]]
 
       [[[configuration]]]
       run_list = recipe[hpcpack::dc]
