@@ -45,7 +45,7 @@ Autoscale = $Autoscale
       admin.password_key = $PasswordSecret
       cert.cert_name = $VaultCertName
 
-      [[[cluster-init hpcpack:default]]]
+      [[[cluster-init cyclecloud/hpcpack:default]]]
 
 
    [[node headnode]]
@@ -60,7 +60,7 @@ Autoscale = $Autoscale
       cyclecloud.discoverable = true
       hpcpack.role = HeadNode
 
-      [[[cluster-init hpcpack:hn]]]
+      [[[cluster-init cyclecloud/hpcpack:hn]]]
 
       [[[network-interface eth0]]]
       AssociatePublicIpAddress = $MasterPublicIp
@@ -106,7 +106,7 @@ Autoscale = $Autoscale
       autoscale.enabled = false
       hpcpack.role = BrokerNode
       
-      [[[cluster-init hpcpack:bn]]]
+      [[[cluster-init cyclecloud/hpcpack:bn]]]
 
       [[[network-interface eth0]]]
       AssociatePublicIpAddress = false
@@ -133,7 +133,7 @@ Autoscale = $Autoscale
       hpcpack.role = ComputeNode
       hpcpack.cn.installer_filename = ${HpcPackVersion == "2019" ? "hpccn2019.zip" : "hpccn2016.zip"}
       
-      [[[cluster-init hpcpack:cn]]]
+      [[[cluster-init cyclecloud/hpcpack:cn]]]
 
       [[[network-interface eth0]]]
       AssociatePublicIpAddress = false
