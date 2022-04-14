@@ -69,6 +69,7 @@ powershell_script 'Install-HpcSingleHeadNode' do
     EOH
     user "#{node['hpcpack']['ad']['domain']}\\#{node['hpcpack']['ad']['admin']['name']}"
     password "#{node['hpcpack']['ad']['admin']['password']}"
+    elevated true
     not_if 'Get-Service "HpcManagement"  -ErrorAction SilentlyContinue'
 end
 

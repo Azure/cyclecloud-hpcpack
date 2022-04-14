@@ -92,11 +92,11 @@ powershell_script 'install-hpcpack' do
     $setupFilePath = "#{install_dir}\\Setup.exe"
   }
   if($vaultName -and $vaultCertName) {
-    #{bootstrap_dir}\\InstallHPCComputeNode.ps1 -SetupFilePath "#{install_dir}\\HpcCompute_x64.msi" -ClusterConnectionString #{node['hpcpack']['hn']['hostname']} -VaultName $vaultName -VaultCertName $vaultCertName
+    #{bootstrap_dir}\\InstallHPCComputeNode.ps1 -SetupFilePath $setupFilePath -ClusterConnectionString #{node['hpcpack']['hn']['hostname']} -VaultName $vaultName -VaultCertName $vaultCertName
   }
   else {
     $secpasswd = ConvertTo-SecureString '#{node['hpcpack']['cert']['password']}' -AsPlainText -Force
-    #{bootstrap_dir}\\InstallHPCComputeNode.ps1 -SetupFilePath "#{install_dir}\\HpcCompute_x64.msi" -ClusterConnectionString #{node['hpcpack']['hn']['hostname']} -PfxFilePath "#{node['jetpack']['downloads']}\\#{node['hpcpack']['cert']['filename']}" -PfxFilePassword $secpasswd
+    #{bootstrap_dir}\\InstallHPCComputeNode.ps1 -SetupFilePath $setupFilePath -ClusterConnectionString #{node['hpcpack']['hn']['hostname']} -PfxFilePath "#{node['jetpack']['downloads']}\\#{node['hpcpack']['cert']['filename']}" -PfxFilePassword $secpasswd
   }
   EOH
   not_if <<-EOH
