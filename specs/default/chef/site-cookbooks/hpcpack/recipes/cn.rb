@@ -92,7 +92,7 @@ powershell_script 'install-hpcpack' do
     $setupFilePath = "#{install_dir}\\Setup.exe"
   }
   if($vaultName -and $vaultCertName) {
-    #{bootstrap_dir}\\InstallHPCComputeNode.ps1 -SetupFilePath $setupFilePath -ClusterConnectionString #{node['hpcpack']['hn']['hostname']} -VaultName $vaultName -VaultCertName $vaultCertName
+    #{bootstrap_dir}\\InstallHPCComputeNode.ps1 -SetupFilePath $setupFilePath -ClusterConnectionString #{node['hpcpack']['hn']['hostname']} -VaultName $vaultName -VaultCertName $vaultCertName -ManagedId '#{node[:hpcpack][:identity]}'
   }
   else {
     $secpasswd = ConvertTo-SecureString '#{node['hpcpack']['cert']['password']}' -AsPlainText -Force

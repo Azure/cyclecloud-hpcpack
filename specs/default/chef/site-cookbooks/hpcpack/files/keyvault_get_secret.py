@@ -15,11 +15,12 @@ def create_ssl_context():
     return ssl_context
 
 
-def get_auth_token():
+def get_auth_token(managed_id):
     conn = http.client.HTTPConnection("169.254.169.254", timeout=2)
     headers = {'Metadata': True}
     params = {'api-version': '2018-02-01',
-              'resource': 'https://vault.azure.net'}
+              'resource': 'https://vault.azure.net',
+              'msi_res_id': managed_id}
 
     token_url = '/metadata/identity/oauth2/token?%s' % urllib.parse.urlencode(params)
     conn.request("GET", token_url, headers=headers)
@@ -32,13 +33,13 @@ def get_auth_token():
 
 
 def get_keyvault_secret(access_token, vault_name, secret_key):
-    
+
     vault_address = '%s.vault.azure.net' % vault_name
     ssl_context = create_ssl_context()
     conn = http.client.HTTPSConnection(vault_address, context=ssl_context, timeout=15)
-    
 
-    
+
+
     headers = {'Authorization': 'Bearer %s' % access_token}
     params = {'api-version': '2016-10-01'}
 
@@ -50,20 +51,21 @@ def get_keyvault_secret(access_token, vault_name, secret_key):
         raise Exception(r.reason)
 
     return json.loads(r.read())
-    
+
 
 def run():
     if len(sys.argv) < 3:
-        logger.error("Usage: %s <vault name> <secret key>" % sys.argv[0])
-        
+        logger.error("Usage: %s <vault name> <secret key> <managed id>" % sys.argv[0])
+
     vault_name = sys.argv[1]
     secret_key = sys.argv[2]
-    
-    access_token_dict = get_auth_token()
+    managed_id = sys.argv[3]
+
+    access_token_dict = get_auth_token(managed_id)
     access_token = access_token_dict['access_token']
 
     secret_dict = get_keyvault_secret(access_token, vault_name, secret_key)
-    
+
     # Output without newline so it may be assigned to script variables
     sys.stdout.write(secret_dict['value'].strip())
 

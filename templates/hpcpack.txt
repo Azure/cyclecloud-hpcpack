@@ -20,6 +20,7 @@ Autoscale = $Autoscale
       cyclecloud.cluster.autoscale.provisioning_timeout = 1500
       cyclecloud.cluster.autoscale.vm_retention_days = $VMRetentionDays
       cyclecloud.node.prevent_metadata_access = false
+      hpcpack.identity = $ManagedServiceIdentity
 
    [[node windowshpcnodes]]
    Abstract = true

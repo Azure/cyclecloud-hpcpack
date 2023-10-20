@@ -12,7 +12,7 @@ powershell_script 'Set-FileAccessPermissions' do
   $protectFiles = @("lockers.json", "connection.json", "node.json")
   foreach($file in $protectFiles)
   {
-    try {    
+    try {
       Set-Acl -Path "#{config_dir}\\$file" -AclObject $acl
     }
     catch { }
@@ -26,46 +26,31 @@ cookbook_file "#{bootstrap_dir}\\keyvault_get_secret.py" do
   action :create
 end
 
+Chef::Log.info( "The managed identity is `#{node[:hpcpack][:identity]}'." )
+
 # Lookup the AD Admin and Cert creds in KeyVault (if present)
 if ! node['hpcpack']['keyvault']['vault_name'].nil?
   Chef::Log.info( "Looking up secrets in vault: #{node['hpcpack']['keyvault']['vault_name']}..." )
 
-
-  if ! node['hpcpack']['keyvault']['admin']['name_key'].nil?
-
-    
-    admin_name = HPCPack::Helpers.keyvault_get_secret(node['hpcpack']['keyvault']['vault_name'], node['hpcpack']['keyvault']['admin']['name_key'])
-    if admin_name.to_s.empty?
-      raise "Error: AD Admin Username not set in #{node['hpcpack']['keyvault']['vault_name']} with key #{node['hpcpack']['keyvault']['admin']['name_key']}"
-    end
-
-    node.default['hpcpack']['ad']['admin']['name'] = admin_name
-    node.override['hpcpack']['ad']['admin']['name'] = admin_name
-
-  end
-  
   if ! node['hpcpack']['keyvault']['admin']['password_key'].nil?
-    admin_pass = HPCPack::Helpers.keyvault_get_secret(node['hpcpack']['keyvault']['vault_name'], node['hpcpack']['keyvault']['admin']['password_key'])
+    admin_pass = HPCPack::Helpers.keyvault_get_secret(node['hpcpack']['keyvault']['vault_name'], node['hpcpack']['keyvault']['admin']['password_key'], node[:hpcpack][:identity])
     if admin_pass.to_s.empty?
       raise "Error: AD Admin Password not set in #{node['hpcpack']['keyvault']['vault_name']} with key #{node['hpcpack']['keyvault']['admin']['password_key']}"
     end
 
     node.default['hpcpack']['ad']['admin']['password'] = admin_pass
     node.override['hpcpack']['ad']['admin']['password'] = admin_pass
-    
   end
-  
+
   if ! node['hpcpack']['keyvault']['cert']['password_key'].nil?
-    cert_pass = HPCPack::Helpers.keyvault_get_secret(node['hpcpack']['keyvault']['vault_name'], node['hpcpack']['keyvault']['cert']['password_key'])
+    cert_pass = HPCPack::Helpers.keyvault_get_secret(node['hpcpack']['keyvault']['vault_name'], node['hpcpack']['keyvault']['cert']['password_key'], node[:hpcpack][:identity])
     if cert_pass.to_s.empty?
       raise "Error: AD Admin Password not set in #{node['hpcpack']['keyvault']['cert']['keyvault']} with key #{node['hpcpack']['keyvault']['cert']['password_key']}"
     end
 
     node.default['hpcpack']['cert']['password'] = cert_pass
     node.override['hpcpack']['cert']['password'] = cert_pass
-    
   end
-  
 end
 Chef::Log.info( "Using AD Admin: #{node['hpcpack']['ad']['admin']['name']} ..." )
 

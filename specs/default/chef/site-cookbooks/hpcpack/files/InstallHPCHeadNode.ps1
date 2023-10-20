@@ -23,18 +23,21 @@ Param
     [parameter(Mandatory = $true, ParameterSetName='KeyVaultCertificate')]
     [string] $VaultCertName,
 
+    [parameter(Mandatory = $true, ParameterSetName='KeyVaultCertificate')]
+    [string] $ManagedId,
+
     [parameter(Mandatory = $true)]
     [System.Management.Automation.PSCredential] $SetupCredential,
 
     [parameter(Mandatory = $false)]
     [string] $SetupFilePath = "",
-    
+
     [parameter(Mandatory = $false)]
     [string] $SQLServerInstance = "",
 
     [parameter(Mandatory = $false)]
     [System.Management.Automation.PSCredential] $SQLCredential,
-    
+
     [Parameter(Mandatory=$false)]
     [Boolean] $EnableBuiltinHA = $false
 )
@@ -75,12 +78,12 @@ foreach($boundParam in $PSBoundParameters.GetEnumerator())
 Write-Log $cmdLine
 
 if(-not $SetupFilePath)
-{    
-    if(Test-Path "C:\HPCPack2019\Setup.exe" -PathType Leaf) 
+{
+    if(Test-Path "C:\HPCPack2019\Setup.exe" -PathType Leaf)
     {
         $SetupFilePath = "C:\HPCPack2019\Setup.exe"
     }
-    elseif (Test-Path "C:\HPCPack2016\Setup.exe" -PathType Leaf) 
+    elseif (Test-Path "C:\HPCPack2016\Setup.exe" -PathType Leaf)
     {
         $SetupFilePath = "C:\HPCPack2016\Setup.exe"
     }
@@ -89,7 +92,7 @@ if(-not $SetupFilePath)
         Write-Log "Cannot found HPC Pack setup package" -LogLevel Error
     }
 }
-elseif (!(Test-Path -Path $SetupFilePath -PathType Leaf)) 
+elseif (!(Test-Path -Path $SetupFilePath -PathType Leaf))
 {
     Write-Log "HPC Pack setup package not found: $SetupFilePath" -LogLevel Error
 }
@@ -97,13 +100,13 @@ elseif (!(Test-Path -Path $SetupFilePath -PathType Leaf))
 ### Import the certificate
 if($PsCmdlet.ParameterSetName -eq "PfxFilePath")
 {
-    if (!(Test-Path -Path $PfxFilePath -PathType Leaf)) 
+    if (!(Test-Path -Path $PfxFilePath -PathType Leaf))
     {
         Write-Log "The PFX certificate file doesn't exist: $PfxFilePath" -LogLevel Error
     }
     try {
         $pfxCert = Import-PfxCertificate -FilePath $PfxFilePath -Password $PfxFilePassword -CertStoreLocation Cert:\LocalMachine\My -Exportable
-        $SSLThumbprint = $pfxCert.Thumbprint        
+        $SSLThumbprint = $pfxCert.Thumbprint
     }
     catch {
         Write-Log "Failed to import PfxFile $PfxFilePath : $_" -LogLevel Error
@@ -113,20 +116,20 @@ elseif($PsCmdlet.ParameterSetName -eq "KeyVaultCertificate")
 {
     Write-Log "Install certificate $VaultCertName from key vault $VaultName"
     try {
-        $pfxCert = Install-KeyVaultCertificate -VaultName $VaultName -CertName $VaultCertName -CertStoreLocation Cert:\LocalMachine\My -Exportable
-        $SSLThumbprint = $pfxCert.Thumbprint        
+        $pfxCert = Install-KeyVaultCertificate -VaultName $VaultName -CertName $VaultCertName -CertStoreLocation Cert:\LocalMachine\My -Exportable -ManagedId $ManagedId
+        $SSLThumbprint = $pfxCert.Thumbprint
     }
     catch {
         Write-Log "Failed to install certificate $VaultCertName from key vault $VaultName : $_" -LogLevel Error
     }
 }
-else 
+else
 {
     $pfxCert = Get-Item Cert:\LocalMachine\My\$SSLThumbprint -ErrorAction SilentlyContinue
     if($null -eq $pfxCert)
     {
         Write-Log "The certificate Cert:\LocalMachine\My\$SSLThumbprint doesn't exist" -LogLevel Error
-    }    
+    }
 }
 
 if($pfxCert.Subject -eq $pfxCert.Issuer)
@@ -186,7 +189,7 @@ if($SQLServerInstance)
     {
         $haStorageConstr  = "Data Source=$SQLServerInstance;Initial Catalog=HPCHAStorage;$secinfo"
         $haWitnessConstr = "Data Source=$SQLServerInstance;Initial Catalog=HPCHAWitness;$secinfo"
-        $setupArgs += " -HAStorageDbConStr:`"$haStorageConstr`" -HAWitnessDbConStr:`"$haWitnessConstr`"" 
+        $setupArgs += " -HAStorageDbConStr:`"$haStorageConstr`" -HAWitnessDbConStr:`"$haWitnessConstr`""
     }
 }
 
@@ -219,7 +222,7 @@ while($true)
     if($retry++ -lt $maxRetryTimes)
     {
         $retryInterval = [System.Math]::Min($maxRetryInterval, $retry * 10)
-        Write-Warning "Failed to Install HPC Pack Head Node (errCode=$exitCode), retry after $retryInterval seconds..."            
+        Write-Warning "Failed to Install HPC Pack Head Node (errCode=$exitCode), retry after $retryInterval seconds..."
         Clear-DnsClientCache
         Start-Sleep -Seconds $retryInterval
     }
@@ -352,7 +355,7 @@ while($true)
         {
             break
         }
-        
+
         New-HpcNodeTemplate -Name $defaultBNTemplateName -Type BrokerNode -ErrorAction Stop
         break
     }
