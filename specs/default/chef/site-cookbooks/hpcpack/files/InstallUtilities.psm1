@@ -122,7 +122,7 @@ function Get-MsiAccessToken
     $encodedResource = [uri]::EscapeDataString($Resource)
     $encodedManagedId = [uri]::EscapeDataString($ManagedId)
     $tokenUri = "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=$encodedResource&msi_res_id=$encodedManagedId"
-    $resp = Invoke-WebRequest -Uri $tokenUri -Method Get -Headers @{Metadata="true"} -UseBasicParsing
+    $resp = Invoke-WebRequest -Uri $tokenUri -Method Get -Headers @{Metadata="true"} -UseBasicParsing -NoProxy
     $content =$resp.Content | ConvertFrom-Json
     return $content.access_token
 }

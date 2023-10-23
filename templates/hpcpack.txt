@@ -20,7 +20,7 @@ Autoscale = $Autoscale
       cyclecloud.cluster.autoscale.provisioning_timeout = 1500
       cyclecloud.cluster.autoscale.vm_retention_days = $VMRetentionDays
       cyclecloud.node.prevent_metadata_access = false
-      hpcpack.identity = $ManagedServiceIdentity
+      hpcpack.managedIdentity = $ManagedServiceIdentity
 
    [[node windowshpcnodes]]
    Abstract = true
@@ -40,7 +40,7 @@ Autoscale = $Autoscale
       ad.admin.password = $Password
       cert.filename = $PfxFilename
       cert.password = $PfxPassword
-      
+
       [[[configuration hpcpack.keyvault]]]
       vault_name = $VaultName
       admin.password_key = $PasswordSecret
@@ -96,17 +96,17 @@ Autoscale = $Autoscale
    MachineType = $BrokerMachineType
    ComputerNamePrefix = bn-
    ImageName =  $BrokerNodeImageName
-   
+
    # The initial number of brokers to start
    InitialCount = $InitialBrokerCount
 
    AdditionalClusterInitSpecs = $BrokerClusterInitSpecs
-   
+
       [[[configuration]]]
       # Important to disable auto scale for broker nodes
       autoscale.enabled = false
       hpcpack.role = BrokerNode
-      
+
       [[[cluster-init cyclecloud/hpcpack:bn]]]
 
       [[[network-interface eth0]]]
@@ -121,7 +121,7 @@ Autoscale = $Autoscale
 
    # Azure Low Priority Instances?
    Interruptible = $UseLowPrio
-   
+
    # The initial number of cores of this type to start when the cluster starts
    InitialCoreCount= 0
 
@@ -129,11 +129,11 @@ Autoscale = $Autoscale
    MaxCoreCount = $MaxExecuteCoreCount
 
    AdditionalClusterInitSpecs = $ExecuteClusterInitSpecs
-   
+
       [[[configuration]]]
       hpcpack.role = ComputeNode
       hpcpack.cn.installer_filename = ${HpcPackVersion == "2019" ? "hpccn2019.zip" : "hpccn2016.zip"}
-      
+
       [[[cluster-init cyclecloud/hpcpack:cn]]]
 
       [[[network-interface eth0]]]
@@ -152,7 +152,7 @@ Order = 1
 <table role="presentation" cellpadding="10" cellspacing="10">
     <tr><td>
         <p>
-            HPC Pack is Microsoft's free HPC solution built on Microsoft Azure and Windows Server technologies and supports a wide range of HPC workloads. 
+            HPC Pack is Microsoft's free HPC solution built on Microsoft Azure and Windows Server technologies and supports a wide range of HPC workloads.
             For more information see <a href="https://docs.microsoft.com/powershell/high-performance-computing/overview" target="_blank">Microsoft HPC Pack overview</a>.
         </p>
     </td></tr>
@@ -176,7 +176,7 @@ Order = 10
         Config.Plugin = pico.form.Dropdown
         Config.Entries := {[Label="HPC Pack 2019"; Value="2019"], [Label="HPC Pack 2016"; Value="2016"]}
         DefaultValue = "2019"
-        
+
     [[parameters Virtual Machines ]]
     Description = "The cluster, in this case, has three roles: the head node, the broker nodes, and the compute nodes. Configure which VM types to use based on the requirements of your application."
     Order = 20
@@ -220,7 +220,7 @@ Order = 10
         Config.Plugin = pico.form.NumberTextBox
         Config.MinValue = 0
         Config.IntegerOnly = true
-        
+
     [[parameters Auto-Scaling]]
     Description = "The cluster can autoscale to the workload, adding compute nodes as jobs are queued. To enable this check the box below and choose the initial and maximum core counts for the cluster"
     Order = 30
@@ -339,14 +339,14 @@ Order = 20
             Label = Password
             ParameterType = Password
             Description = The domain user password, also used as local administrator user password. (The supplied password must be between 12-123 characters long and must satisfy at least 3 of password complexity requirements from the following: 1) Contains an uppercase character 2) Contains a lowercase character 3) Contains a numeric digit 4) Contains a special character)
-            Required = true      
+            Required = true
             Conditions.Excluded := UseKeyVault
             Order = 20
 
             [[[[parameter PasswordSecret]]]]
             Label = Password Secret
             Description = The name of the Azure Key Vault secret which stores the domain user password. (The supplied password must be between 12-123 characters long and must satisfy at least 3 of password complexity requirements from the following: 1) Contains an uppercase character 2) Contains a lowercase character 3) Contains a numeric digit 4) Contains a special character)
-            Required = true        
+            Required = true
             Conditions.Excluded := !UseKeyVault
             Order = 20
 
@@ -369,7 +369,7 @@ Order = 20
             Required = true
             Conditions.Excluded := !UseKeyVault
             Order = 10
-            
+
             [[[[parameter PfxFileName]]]]
             Label = PfxFile Name
             Description = The file name of PFX format certificate which you have already uploaded to the blobs.
@@ -389,12 +389,12 @@ Order = 20
 Order = 30
 
     [[parameters Azure Settings]]
-    Order = 10 
+    Order = 10
 
         [[[parameter Credentials]]]
         Description = The credentials for the cloud provider
         ParameterType = Cloud.Credentials
-        
+
     [[parameters Cluster Software]]
     Description = "Specify the base OS installed on all nodes, and optionally the cluster-init and chef versions from your Locker."
     Order = 15

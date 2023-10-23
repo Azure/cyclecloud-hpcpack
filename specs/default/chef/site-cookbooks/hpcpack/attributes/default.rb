@@ -38,3 +38,5 @@ default['hpcpack']['hn']['clusterUID'] = nil
 
 # Allow users to uninstall specific windows updates (some apps haven't been ported to latest sec. updates)
 default['hpcpack']['uninstall_updates'] = []
+
+default['hpcpack']['managedIdentity'] = nil

@@ -26,14 +26,14 @@ cookbook_file "#{bootstrap_dir}\\keyvault_get_secret.py" do
   action :create
 end
 
-Chef::Log.info( "The managed identity is `#{node[:hpcpack][:identity]}'." )
+Chef::Log.info( "The managed identity is `#{node[:hpcpack][:managedIdentity]}'." )
 
 # Lookup the AD Admin and Cert creds in KeyVault (if present)
 if ! node['hpcpack']['keyvault']['vault_name'].nil?
   Chef::Log.info( "Looking up secrets in vault: #{node['hpcpack']['keyvault']['vault_name']}..." )
 
   if ! node['hpcpack']['keyvault']['admin']['password_key'].nil?
-    admin_pass = HPCPack::Helpers.keyvault_get_secret(node['hpcpack']['keyvault']['vault_name'], node['hpcpack']['keyvault']['admin']['password_key'], node[:hpcpack][:identity])
+    admin_pass = HPCPack::Helpers.keyvault_get_secret(node['hpcpack']['keyvault']['vault_name'], node['hpcpack']['keyvault']['admin']['password_key'], node[:hpcpack][:managedIdentity])
     if admin_pass.to_s.empty?
       raise "Error: AD Admin Password not set in #{node['hpcpack']['keyvault']['vault_name']} with key #{node['hpcpack']['keyvault']['admin']['password_key']}"
     end
@@ -43,7 +43,7 @@ if ! node['hpcpack']['keyvault']['vault_name'].nil?
   end
 
   if ! node['hpcpack']['keyvault']['cert']['password_key'].nil?
-    cert_pass = HPCPack::Helpers.keyvault_get_secret(node['hpcpack']['keyvault']['vault_name'], node['hpcpack']['keyvault']['cert']['password_key'], node[:hpcpack][:identity])
+    cert_pass = HPCPack::Helpers.keyvault_get_secret(node['hpcpack']['keyvault']['vault_name'], node['hpcpack']['keyvault']['cert']['password_key'], node[:hpcpack][:managedIdentity])
     if cert_pass.to_s.empty?
       raise "Error: AD Admin Password not set in #{node['hpcpack']['keyvault']['cert']['keyvault']} with key #{node['hpcpack']['keyvault']['cert']['password_key']}"
     end
