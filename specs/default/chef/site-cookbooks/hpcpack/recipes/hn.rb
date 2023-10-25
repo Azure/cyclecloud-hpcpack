@@ -60,7 +60,7 @@ powershell_script 'Install-HpcSingleHeadNode' do
     $vaultName = "#{node['hpcpack']['keyvault']['vault_name']}"
     $vaultCertName = "#{node['hpcpack']['keyvault']['cert']['cert_name']}"
     if($vaultName -and $vaultCertName) {
-      #{bootstrap_dir}\\InstallHPCHeadNode.ps1 -ClusterName $env:ComputerName -VaultName $vaultName -VaultCertName $vaultCertName -SetupCredential $domainCred
+      #{bootstrap_dir}\\InstallHPCHeadNode.ps1 -ClusterName $env:ComputerName -VaultName $vaultName -VaultCertName $vaultCertName -SetupCredential $domainCred -ManagedId '#{node[:hpcpack][:managedIdentity]}'
     }
     else {
       $seccertpasswd = ConvertTo-SecureString '#{node['hpcpack']['cert']['password']}' -AsPlainText -Force

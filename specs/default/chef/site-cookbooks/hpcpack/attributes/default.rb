@@ -11,7 +11,6 @@ default['hpcpack']['config']['InactivityCount'] = 10
 # If "keyvault" and "password_key" are set, look up key in KeyVault
 # (Requires a managed service identity to be associated with the nodes to allow vault access)
 default['hpcpack']['keyvault']['vault_name'] = nil
-default['hpcpack']['keyvault']['admin']['name_key'] = nil
 default['hpcpack']['keyvault']['admin']['password_key'] = nil
 default['hpcpack']['keyvault']['cert']['password_key'] = nil
 default['hpcpack']['keyvault']['cert']['cert_name'] = nil
@@ -39,3 +38,5 @@ default['hpcpack']['hn']['clusterUID'] = nil
 
 # Allow users to uninstall specific windows updates (some apps haven't been ported to latest sec. updates)
 default['hpcpack']['uninstall_updates'] = []
+
+default['hpcpack']['managedIdentity'] = nil

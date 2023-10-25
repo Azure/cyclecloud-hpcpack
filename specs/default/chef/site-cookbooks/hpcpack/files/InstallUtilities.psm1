@@ -1,7 +1,7 @@
 ﻿<#
 Generic utilities for the HPC Pack installation utilities
 NOTE:
-    This module requires PowerShell 2.0 or later. 
+    This module requires PowerShell 2.0 or later.
 #>
 
 # Must disable Progress bar
@@ -9,6 +9,7 @@ $ProgressPreference = "SilentlyContinue"
 $ErrorActionPreference = 'stop'
 Set-StrictMode -Version latest
 $Script:LogFile = $null
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 function Set-LogFile
 {
@@ -111,12 +112,16 @@ function Get-MsiAccessToken
     Param
     (
         [parameter(Mandatory = $true)]
-        [string] $Resource
+        [string] $Resource,
+
+        [parameter(Mandatory = $true)]
+        [string] $ManagedId
     )
-    
+
     $Resource = $Resource.Trim()
     $encodedResource = [uri]::EscapeDataString($Resource)
-    $tokenUri = "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=$encodedResource"
+    $encodedManagedId = [uri]::EscapeDataString($ManagedId)
+    $tokenUri = "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=$encodedResource&msi_res_id=$encodedManagedId"
     $resp = Invoke-WebRequest -Uri $tokenUri -Method Get -Headers @{Metadata="true"} -UseBasicParsing
     $content =$resp.Content | ConvertFrom-Json
     return $content.access_token
@@ -128,15 +133,18 @@ function Get-KeyVaultSecretValue
     param (
         [parameter(Mandatory = $true)]
         [string] $VaultName,
-    
+
         [parameter(Mandatory = $true)]
         [string] $CertName,
-    
+
         [parameter(Mandatory = $false)]
-        [string] $Version = ""
+        [string] $Version = "",
+
+        [parameter(Mandatory = $true)]
+        [string] $ManagedId
     )
 
-    $access_token = Get-MsiAccessToken -Resource "https://vault.azure.net"
+    $access_token = Get-MsiAccessToken -Resource "https://vault.azure.net" -ManagedId $ManagedId
     $secretName = $CertName
     if($Version) {
         $secretName = "$secretName/$Version"
@@ -153,21 +161,24 @@ function Install-KeyVaultCertificate
     (
         [parameter(Mandatory = $true)]
         [string] $VaultName,
-    
+
         [parameter(Mandatory = $true)]
         [string] $CertName,
-    
+
         [parameter(Mandatory = $false)]
         [string] $Version = "",
 
-        [Parameter(Mandatory=$false)]        
+        [Parameter(Mandatory=$false)]
         [string] $CertStoreLocation = "Cert:\LocalMachine\My",
 
         [parameter(Mandatory = $false)]
-        [switch] $Exportable
+        [switch] $Exportable,
+
+        [parameter(Mandatory = $true)]
+        [string] $ManagedId
     )
-   
-    $certBase64String = Get-KeyVaultSecretValue -VaultName $VaultName -CertName $CertName -Version $Version
+
+    $certBase64String = Get-KeyVaultSecretValue -VaultName $VaultName -CertName $CertName -Version $Version -ManagedId $ManagedId
     $certBytes = [Convert]::FromBase64String($certBase64String)
     $keyFlags = [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::PersistKeySet -bor [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::MachineKeySet
     if($Exportable)
@@ -196,20 +207,20 @@ if($null -eq (Get-Command -Name Invoke-WebRequest -ErrorAction SilentlyContinue)
     function Invoke-WebRequest
     {
         param(
-            [Parameter(Mandatory=$true)]      
+            [Parameter(Mandatory=$true)]
             [uri] $Uri,
-            
-            [Parameter(Mandatory=$false)]        
+
+            [Parameter(Mandatory=$false)]
             [string] $Method = "Get",
 
-            [Parameter(Mandatory=$false)]        
+            [Parameter(Mandatory=$false)]
             [string] $ContentType = "",
 
-            [Parameter(Mandatory=$false)]        
+            [Parameter(Mandatory=$false)]
             [hashtable] $Headers,
 
-            [Parameter(Mandatory=$false)]        
-            [switch] $UseBasicParsing            
+            [Parameter(Mandatory=$false)]
+            [switch] $UseBasicParsing
         )
 
         $request = [System.Net.WebRequest]::Create($Uri)
@@ -243,8 +254,8 @@ if($null -eq (Get-Command -Name ConvertTo-Json -ErrorAction SilentlyContinue))
         param(
             [Parameter(Mandatory=$true, Position = 0, ValueFromPipeline=$true)]
             [object] $InputObject,
-            
-            [Parameter(Mandatory=$false)]        
+
+            [Parameter(Mandatory=$false)]
             [Int] $Depth
         )
 
@@ -261,11 +272,11 @@ if($null -eq (Get-Command -Name ConvertFrom-Json -ErrorAction SilentlyContinue))
         param(
             [Parameter(Mandatory=$true, Position = 0, ValueFromPipeline=$true)]
             [string] $InputObject,
-            
-            [Parameter(Mandatory=$false)]        
+
+            [Parameter(Mandatory=$false)]
             [Int] $Depth
         )
-        
+
         $jsSerializer = New-Object system.web.script.serialization.javascriptSerializer
 
         return ,$jsSerializer.DeserializeObject($InputObject)
@@ -277,19 +288,19 @@ if($null -eq (Get-Command -Name Import-PfxCertificate -ErrorAction SilentlyConti
     function Import-PfxCertificate
     {
         param(
-            [Parameter(Mandatory=$true)]        
+            [Parameter(Mandatory=$true)]
             [string] $FilePath,
 
-            [Parameter(Mandatory=$true)]        
+            [Parameter(Mandatory=$true)]
             [securestring] $Password,
 
-            [Parameter(Mandatory=$true)]        
+            [Parameter(Mandatory=$true)]
             [string] $CertStoreLocation,
 
-            [Parameter(Mandatory=$false)]        
-            [switch] $Exportable 
+            [Parameter(Mandatory=$false)]
+            [switch] $Exportable
         )
-        
+
         $keyFlags = [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::PersistKeySet -bor [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::MachineKeySet
         if($Exportable)
         {
@@ -306,7 +317,7 @@ if($null -eq (Get-Command -Name Import-PfxCertificate -ErrorAction SilentlyConti
         }
 
         return $cert
-    }    
+    }
 }
 
 if($null -eq (Get-Command -Name Export-Certificate -ErrorAction SilentlyContinue))
@@ -316,11 +327,11 @@ if($null -eq (Get-Command -Name Export-Certificate -ErrorAction SilentlyContinue
         param(
             [Parameter(Mandatory=$true, Position = 0, ValueFromPipeline=$true)]
             [object] $Cert,
-            
-            [Parameter(Mandatory=$true)]        
+
+            [Parameter(Mandatory=$true)]
             [string] $FilePath
         )
-        
+
         if($cert -is [string]) {
             $cert = Get-Item $Cert
         }
@@ -337,11 +348,11 @@ if($null -eq (Get-Command -Name Import-Certificate -ErrorAction SilentlyContinue
         param(
             [Parameter(Mandatory=$true, Position = 0, ValueFromPipeline=$true)]
             [string] $FilePath,
-            
-            [Parameter(Mandatory=$true)]        
+
+            [Parameter(Mandatory=$true)]
             [string] $CertStoreLocation
         )
-        
+
         $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2 -ArgumentList $FilePath
         $certStore = Get-Item $CertStoreLocation
         try {
@@ -381,7 +392,7 @@ if($null -eq (Get-Command -Name Set-DnsClientGlobalSetting -ErrorAction Silently
             [Parameter(Mandatory=$true)]
             [string[]] $SuffixSearchList
         )
-        
+
         $netConfig = [wmiclass]'win32_Networkadapterconfiguration'
         [void]$netConfig.SetDNSSuffixSearchOrder($SuffixSearchList)
     }

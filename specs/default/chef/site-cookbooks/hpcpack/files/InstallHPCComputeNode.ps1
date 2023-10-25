@@ -24,7 +24,10 @@ Param
     [string] $VaultName,
 
     [parameter(Mandatory = $true, ParameterSetName='KeyVaultCertificate')]
-    [string] $VaultCertName
+    [string] $VaultCertName,
+
+    [parameter(Mandatory = $true, ParameterSetName='KeyVaultCertificate')]
+    [string] $ManagedId
 )
 
 # Must disable Progress bar
@@ -41,7 +44,7 @@ if($PSVersionTable.PSVersion -lt '3.0' -or ([System.Environment]::OSVersion.Vers
         Add-WindowsFeature -Name NET-Framework-Core
     }
 }
-else 
+else
 {
     $currentDir = $PSScriptRoot
 }
@@ -63,20 +66,20 @@ foreach($boundParam in $PSBoundParameters.GetEnumerator())
 }
 Write-Log $cmdLine
 
-if (!(Test-Path -Path $SetupFilePath -PathType Leaf)) 
+if (!(Test-Path -Path $SetupFilePath -PathType Leaf))
 {
     Write-Log "HPC Pack setup package not found: $SetupFilePath" -LogLevel Error
 }
 ### Import the certificate
 if($PsCmdlet.ParameterSetName -eq "PfxFilePath")
 {
-    if (!(Test-Path -Path $PfxFilePath -PathType Leaf)) 
+    if (!(Test-Path -Path $PfxFilePath -PathType Leaf))
     {
         Write-Log "The PFX certificate file doesn't exist: $PfxFilePath" -LogLevel Error
     }
     try {
         $pfxCert = Import-PfxCertificate -FilePath $PfxFilePath -Password $PfxFilePassword -CertStoreLocation Cert:\LocalMachine\My
-        $SSLThumbprint = $pfxCert.Thumbprint       
+        $SSLThumbprint = $pfxCert.Thumbprint
     }
     catch {
         Write-Log "Failed to import PfxFile $PfxFilePath : $_" -LogLevel Error
@@ -85,20 +88,20 @@ if($PsCmdlet.ParameterSetName -eq "PfxFilePath")
 elseif($PsCmdlet.ParameterSetName -eq "KeyVaultCertificate")
 {
     try {
-        $pfxCert = Install-KeyVaultCertificate -VaultName $VaultName -CertName $VaultCertName -CertStoreLocation Cert:\LocalMachine\My
+        $pfxCert = Install-KeyVaultCertificate -VaultName $VaultName -CertName $VaultCertName -CertStoreLocation Cert:\LocalMachine\My -ManagedId $ManagedId
         $SSLThumbprint = $pfxCert.Thumbprint
     }
     catch {
         Write-Log "Failed to install certificate $VaultCertName from key vault $VaultName : $_" -LogLevel Error
     }
 }
-else 
+else
 {
     $pfxCert = Get-Item Cert:\LocalMachine\My\$SSLThumbprint -ErrorAction SilentlyContinue
     if($null -eq $pfxCert)
     {
         Write-Log "The certificate Cert:\LocalMachine\My\$SSLThumbprint doesn't exist" -LogLevel Error
-    }    
+    }
 }
 
 if($pfxCert.Subject -eq $pfxCert.Issuer)
@@ -137,12 +140,12 @@ if($hpcRegKey -and ("ClusterConnectionString" -in $hpcRegKey.Property))
                 Start-Process -FilePath "msiexec.exe" -ArgumentList "/quiet /passive /x {$pcode}" -NoNewWindow -Wait
             }
         }
-        
+
         if($oldHpcComponentExists -and (Test-Path "C:\HPCPack2016"))
         {
             Write-Log "Removing the old HPC setup package C:\HPCPack2016 ..."
             Remove-item C:\HPCPack2016 -Force -Recurse -ErrorAction SilentlyContinue
-        }        
+        }
     }
 }
 
@@ -182,9 +185,9 @@ if([System.IO.Path]::GetFileName($SetupFilePath) -eq 'Setup.exe')
         {
             Write-Log "Failed to Install HPC compute node (ErrCode=$exitCode)" -LogLevel Error
         }
-    }    
+    }
 }
-else 
+else
 {
     # HpcCompute_x64.msi file
     $setupDir = [System.IO.Path]::GetDirectoryName($SetupFilePath)

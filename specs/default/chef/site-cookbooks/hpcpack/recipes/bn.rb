@@ -50,7 +50,7 @@ powershell_script 'install-hpcpack' do
   $vaultName = "#{node['hpcpack']['keyvault']['vault_name']}"
   $vaultCertName = "#{node['hpcpack']['keyvault']['cert']['cert_name']}"
   if($vaultName -and $vaultCertName) {
-    #{bootstrap_dir}\\InstallHPCBrokerNode.ps1 -SetupFilePath "#{install_dir}\\Setup.exe" -ClusterConnectionString #{node['hpcpack']['hn']['hostname']} -VaultName $vaultName -VaultCertName $vaultCertName
+    #{bootstrap_dir}\\InstallHPCBrokerNode.ps1 -SetupFilePath "#{install_dir}\\Setup.exe" -ClusterConnectionString #{node['hpcpack']['hn']['hostname']} -VaultName $vaultName -VaultCertName $vaultCertName -ManagedId '#{node[:hpcpack][:managedIdentity]}'
   }
   else {
     $secpasswd = ConvertTo-SecureString '#{node['hpcpack']['cert']['password']}' -AsPlainText -Force
