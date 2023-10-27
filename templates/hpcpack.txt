@@ -413,7 +413,7 @@ Order = 30
         DefaultValue = 2019hn-ws2019
         Description = The operating system of the head node
         Config.Plugin = pico.control.AutoCompleteDropdown
-        Config.Entries := {[Label="Windows Server 2019"; Name="2019hn-ws2019"], [Label="Windows Server 2016"; Value="2019hn-ws2016"]}
+        Config.Entries := {[Label="Windows Server 2019"; Name="2019hn-ws2019"], [Label="Windows Server 2022"; Value="2019hn-ws2022"]}
         Conditions.Hidden := HpcPackVersion != "2019"
         Required = true
 

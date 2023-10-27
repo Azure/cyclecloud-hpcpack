@@ -109,6 +109,7 @@ end
 # Ideally it shall be done in the autoscaler
 powershell_script 'assign-NodeTemplate' do
     code <<-EOH
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     $env:CCP_LOGROOT_USR = "%LOCALAPPDATA%\\Microsoft\\Hpc\\LogFiles\\"
     Add-PsSnapin Microsoft.HPC
     $headNodeName = "#{node['hpcpack']['hn']['hostname']}"
