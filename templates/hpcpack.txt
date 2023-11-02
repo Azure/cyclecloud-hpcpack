@@ -422,16 +422,16 @@ Order = 30
         Description = The operating system of the broker nodes
         Required = true
         ParameterType = Cloud.Image
-        DefaultValue = cycle.image.win2016
-        Config.Filter := Package in {"cycle.image.win2016"}
+        DefaultValue = cycle.image.win2019
+        Config.Filter := Package in {"cycle.image.win2022", "cycle.image.win2019", "cycle.image.win2016"}
 
         [[[parameter ComputeNodeImageName]]]
         Label = CN OS
         Description = The operating system of the compute nodes
         Required = true
         ParameterType = Cloud.Image
-        DefaultValue = cycle.image.win2016
-        Config.Filter := Package in {"cycle.image.win2016", "cycle.image.win2012"}
+        DefaultValue = cycle.image.win2019
+        Config.Filter := Package in {"cycle.image.win2022", "cycle.image.win2019", "cycle.image.win2016", "cycle.image.win2012"}
 
         [[[parameter ManagementClusterInitSpecs]]]
         Label = HN Cluster-Init
