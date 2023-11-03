@@ -48,7 +48,7 @@ end
 
 powershell_script 'add-dns-forwarder' do
   code <<-EOH
-  $IPAddresses = @('8.8.8.8')
+  $IPAddresses = @('168.63.129.16')
   $setParams = @{
     Namespace = 'root\\MicrosoftDNS'
     Query = 'select * from microsoftdns_server'
@@ -58,6 +58,6 @@ powershell_script 'add-dns-forwarder' do
   EOH
   not_if <<-EOH
   [array]$currentFwders = (Get-CimInstance -Namespace root\\MicrosoftDNS -ClassName microsoftdns_server).Forwarders
-  $currentFwders -contains '8.8.8.8'
+  $currentFwders -contains '168.63.129.16'
   EOH
 end
