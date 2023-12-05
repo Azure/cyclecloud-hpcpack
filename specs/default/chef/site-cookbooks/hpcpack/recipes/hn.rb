@@ -24,25 +24,15 @@ powershell_script "Ensure TLS 1.2 for nuget" do
   EOH
 end
 
-# Get the nuget binary as well
-# first try jetpack download, then resort to web download (nuget is not part of the HPC Pack project release)
-jetpack_download "try_fetch_nuget_from_locker" do
-  project "hpcpack"
-  dest "#{node[:cyclecloud][:home]}/bin/nuget.exe"
-  ignore_failure true
-  not_if { ::File.exists?("#{node[:cyclecloud][:home]}/bin/nuget.exe") }
-end
-ruby_block "try_fetch_nuget_from_web" do
-  block do
-    require 'open-uri'
-    download = open('https://aka.ms/nugetclidl')
-    IO.copy_stream(download, "#{node[:cyclecloud][:home]}/bin/nuget.exe")
-  end
+powershell_script "Install NuGet" do
+  code <<-EOH
+  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+  Invoke-WebRequest -Uri 'https://aka.ms/nugetclidl' -OutFile '#{node[:cyclecloud][:home]}/bin/nuget.exe'
+  EOH
   not_if { ::File.exists?("#{node[:cyclecloud][:home]}/bin/nuget.exe") }
 end
 
-
-powershell_script "Install-NuGet" do
+powershell_script "Install NuGet Provider" do
     code <<-EOH
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
