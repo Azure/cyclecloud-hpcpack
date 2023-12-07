@@ -1,10 +1,10 @@
 # Azure CycleCloud HPC Pack project
 
-HPC Pack is Microsoft's free HPC solution built on Microsoft Azure and Windows Server technologies and supports a wide range of HPC workloads. For more information see [Microsoft HPC Pack overview](https://docs.microsoft.com/powershell/high-performance-computing/overview). 
+HPC Pack is Microsoft's free HPC solution built on Microsoft Azure and Windows Server technologies and supports a wide range of HPC workloads. For more information see [Microsoft HPC Pack overview](https://docs.microsoft.com/powershell/high-performance-computing/overview).
 
 ## Versions and Limitations
 
-This project supports HPC Pack 2016 (with Update 3) and HPC Pack 2019.
+This project supports HPC Pack 2016 (with Update 3) and HPC Pack 2019 (with Update 2).
 
 Currently, the HPC Pack head node _must_ use the official Microsoft HPC Pack 2016 or 2019 Head Node images. Compute nodes may use custom images as usual for CycleCloud clusters.
 
@@ -12,7 +12,7 @@ Currently, only Windows Compute Nodes are supported.
 
 Finally, the HPC Pack cluster type currently requires outbound internet access.  It uses that access to the [Nuget binary](https://aka.ms/nugetclidl), to download and install Python3  on the Head Node, and to reach PyPI to create an appropriate virtual environment for the CLI.
 
-# Azure Subscription Requirements
+## Azure Subscription Requirements
 
 Running an HPC Pack cluster requires some additional preparation in your Azure Subscription.
 
@@ -34,7 +34,7 @@ You can follow the instruction in the [Key Vault documentation](https://docs.mic
 
 We recommend using [Azure Role-Based Access Control](https://docs.microsoft.com/azure/key-vault/general/rbac-guide?tabs=azure-cli) to assign Key Vault permissions to the Managed Identity.
 
-# Node Roles
+## Node Roles
 
 There are three node roles in this template, head node, broker nodes and compute nodes.
 
@@ -42,7 +42,7 @@ There are three node roles in this template, head node, broker nodes and compute
 - Broker nodes: The "broker" node array is used to create HPC Pack broker nodes, if you want to run SOA workload, you can create one or more broker nodes in it.
 - Compute nodes: The "cn" node array is used to create HPC Pack compute nodes.
 
-# Autoscale
+## Autoscale
 
 You can enable autoscale for the cluster. The cluster is started only with the head node, when you submit jobs to the cluster, compute nodes will be created.
 There are two scale down options for HPC Pack Compute Nodes: Deallocate or Terminate.
@@ -75,9 +75,9 @@ The CLI can be used to diagnose issues with autoscaling or to manually control c
 | retry_failed_nodes   | Retries all nodes in a failed state. |
 | validate_constraint  | Validates then outputs as json one or more constraints. |
 
-# Known Issues
+## Known Issues
 
-1. During initial cluster configuration, all Nodes must reboot at least once to join the AD Domain.  
+1. During initial cluster configuration, all Nodes must reboot at least once to join the AD Domain.
    CycleCloud records the reboot as a possible configuration failure and nodes may temporarily display
    "Error configuring software" in the `Last Status Message` column of the Node table.  The reported error
    in the Issues or Node details will look like this:
@@ -86,10 +86,55 @@ The CLI can be used to diagnose issues with autoscaling or to manually control c
    Unknown configuration status returned: 'rebooting'
    ```
 
-   This error may be safely ignored.  
+   This error may be safely ignored.
    The cluster nodes should automatically retry and succeed after the reboot.
 
-# Contributing
+## Developer Notes
+
+### Make a GitHub release
+
+For a GitHub release, a Python package `cyclecloud-hpcpack-pkg-{version}.zip` (Hpc Pack Autoscaler) is required. Build it with `package.sh`, like
+
+```bash
+./package.sh
+```
+
+Then get the built package at `blobs/cyclecloud-hpcpack-pkg-{version}.zip`. Upload the file as a release asset when making a release.
+
+### Update the HPC Pack project for hotfix
+
+When you need to apply a hotfix of the HPC Pack project, follow these steps:
+
+1. Prepare a build.
+
+   1. Make sure you already have `blobs/cyclecloud-hpcpack-pkg-{version}.zip` in place. If not, build one as mentioned.
+
+   2. Build the project by
+
+      ```bash
+      cyclecloud project build
+      ```
+
+      NOTE: install the [Cycle Cloud CLI](https://learn.microsoft.com/en-us/azure/cyclecloud/how-to/install-cyclecloud-cli) for `cyclecloud` if you haven't.
+
+
+      The build result goes into `build/`.
+
+2. Remove the cached project on locker.
+
+   In the locker's Azure Storage Account, the project is cached at "Blob containers->cyclecloud->cache->projects->hpcpack". Remove the "hpcpack".
+
+3. Update the project on a cycle server.
+
+   Update with `deploy-to-server.sh`, like
+
+   ```bash
+   CC_HOST=<dns name or ip> CC_USER=<cycle server admin> CC_HPCPACK_VERSION=<version> ./deploy-to-server.sh
+   ```
+
+   NOTE: Make sure the correct and exact version of The HPC Pack project is applied, or the update won't work! For example, Cycle Cloud 8.5 has HPC Pack project 2.1, and Cycle Cloud 8.1 has HPC Pack project 2.0. So on CC 8.5, the correct version is "2.1.0". And it's "2.0.0" for CC 8.1. Check the path `/opt/cycle_server/work/staging/projects/hpcpack/{version}` on the a Cycle server for sure.
+
+## Contributing
 
 This project welcomes contributions and suggestions.  Most contributions require you to agree to a
 Contributor License Agreement (CLA) declaring that you have the right to, and actually do, grant us
