@@ -21,14 +21,20 @@ ssh $user@$host /bin/bash << EOF
   echo \$(date) on \$(hostname)
 
   if [[ ! -d "$source_dir" ]]; then
-    echo "No '$source_dir' exists!"
+    echo "'$source_dir' doesn't exist!"
     exit 1
   fi
 
-  sudo mkdir -p $install_dir
+  if ! sudo ls "$install_dir" > /dev/null; then
+    echo "'$install_dir' doesn't exist!"
+    exit 1
+  fi
+
   sudo rsync -rtvi --del $source_dir/ $install_dir/
   sudo chown -R cycle_server:cycle_server $install_dir
 
   sudo tree -F $(dirname $install_dir)
   sudo ls -lFR $(dirname $install_dir)
 EOF
+
+echo "Done!"
