@@ -4,12 +4,12 @@ set -ex
 
 host=${CC_HOST:?'must be specified!'}
 user=${CC_USER:?'must be specified!'}
-version=${CC_HPCPACK_VERSION:-"2.1.0"}
+version=${CC_HPCPACK_VERSION:?'must be specified!'}
 
 local_src=build/hpcpack
 source_dir=/home/$user/hpcpack
 
-# NOTE: The version is not abitratry and the install_dir must match the real path on server.
+# NOTE: The install_dir must match the real path on server.
 install_dir=/opt/cycle_server/work/staging/projects/hpcpack/$version
 
 # NOTE: The trailing '/' matters to rsync!
