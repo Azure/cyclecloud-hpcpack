@@ -332,5 +332,5 @@ ASALocalRun/
 build/
 dist/
 libs/
-blobs/cyclecloud-hpcpack-pkg-2.1.0.zip
+blobs/cyclecloud-hpcpack-pkg-*.zip
 hpcpack-autoscaler/src/cyclecloud_hpcpack.egg-info/
