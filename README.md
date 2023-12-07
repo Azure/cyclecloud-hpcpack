@@ -103,6 +103,8 @@ Then get the built package at `blobs/cyclecloud-hpcpack-pkg-{version}.zip`. Uplo
 
 ### Update the HPC Pack project for hotfix
 
+BEFORE YOU DO, please note that a hotfix is only for the version of HPC Pack project at path `/opt/cycle_server/work/staging/projects/hpcpack/{version}` on a Cycle server. Since each version of Cycle Cloud has a default version of HPC Pack project, a hotfix can be applied only to that version of HPC Pack project. For now, CC 8.1 has HPC Pack project 2.0.0 and CC 8.5 has HPC Pack project 2.1.0.
+
 When you need to apply a hotfix of the HPC Pack project, follow these steps:
 
 1. Prepare a build.
@@ -126,13 +128,13 @@ When you need to apply a hotfix of the HPC Pack project, follow these steps:
 
 3. Update the project on a cycle server.
 
-   Update with `deploy-to-server.sh`, like
+   Update with `update-on-server.sh`, like
 
    ```bash
-   CC_HOST=<dns name or ip> CC_USER=<cycle server admin> CC_HPCPACK_VERSION=<version> ./deploy-to-server.sh
+   CC_HOST=<dns name or ip> CC_USER=<cycle server admin> CC_HPCPACK_VERSION=<version> ./update-on-server.sh
    ```
 
-   NOTE: Make sure the correct and exact version of The HPC Pack project is applied, or the update won't work! For example, Cycle Cloud 8.5 has HPC Pack project 2.1, and Cycle Cloud 8.1 has HPC Pack project 2.0. So on CC 8.5, the correct version is "2.1.0". And it's "2.0.0" for CC 8.1. Check the path `/opt/cycle_server/work/staging/projects/hpcpack/{version}` on the a Cycle server for sure.
+   NOTE: The `version` is in the path `/opt/cycle_server/work/staging/projects/hpcpack/{version}` on a Cycle server.
 
 ## Contributing
 
