@@ -14,15 +14,15 @@ mkdir -Force "$AUTOSCALER_HOME"
 mkdir -Force "$AUTOSCALER_BIN"
 
 $env:Path += ";" + $JETPACK_BIN + ";" + $AUTOSCALER_BIN
-if (-not (Test-Path "C:\cycle\python.3.8.8")) {
-    nuget.exe install python -Version 3.8.8 -OutputDirectory C:\cycle\
+if (-not (Test-Path "C:\cycle\python.3.9.5")) {
+    nuget.exe install python -Version 3.9.5 -OutputDirectory C:\cycle\
 }
 if (-not (Test-Path "$AUTOSCALER_VENV")) {
-    & C:\cycle\python.3.8.8\tools\python.exe -m venv $AUTOSCALER_VENV
+    & C:\cycle\python.3.9.5\tools\python.exe -m venv $AUTOSCALER_VENV
 }
 & $AUTOSCALER_VENV\Scripts\Activate.ps1
 
-& pip install -U pip
+& python -m pip install --upgrade pip
 # & pip install urllib3 requests typeguard jsonpickle pytz
 & pip install -U (get-item $PSScriptRoot\packages\*)
 # & pip install -e .
