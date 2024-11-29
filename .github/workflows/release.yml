@@ -2,8 +2,10 @@
 on:
   push:
     # Sequence of patterns matched against refs/tags
-    tags:
-    - '2*' # Push events to matching v*, i.e. v1.0, v20.15.10
+    # tags:
+    # - '2*' # Push events to matching v*, i.e. v1.0, v20.15.10
+    branches:
+      - feature/fix-release-upgrade-python
 
 name: Upload Release Asset
 
@@ -23,22 +25,22 @@ jobs:
           source $GITHUB_WORKSPACE/.venv/bin/activate && python3 package.py;
       - name: Get the version
         id: get_version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        run: echo "VERSION=2.1.2" >> $GITHUB_OUTPUT
       - name: Create Release
         id: create_release
         uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.ACTION_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN  }}
         with:
           tag_name: ${{ github.ref }}
           release_name: Release ${{ github.ref }}
-          draft: false
+          draft: true
           prerelease: true
       - name: Upload Release Asset
         id: upload-release-asset 
         uses: actions/upload-release-asset@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.ACTION_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN  }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: dist/cyclecloud-hpcpack-pkg-${{ steps.get_version.outputs.version }}.zip
