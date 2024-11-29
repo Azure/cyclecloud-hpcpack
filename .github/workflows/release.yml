@@ -1,4 +1,8 @@
 # Based on example from https://github.com/actions/upload-release-asset
+permissions:
+  contents: write
+  actions: read
+
 on:
   push:
     # Sequence of patterns matched against refs/tags
