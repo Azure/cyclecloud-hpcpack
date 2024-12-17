@@ -2,7 +2,7 @@ default['hpcpack']['ad']['dnsServer'] = nil
 default['hpcpack']['hn']['hostname'] = nil
 
 # HPC Pack Autoscaling configuration
-default['hpcpack']['autoscaler']['package'] = "cyclecloud-hpcpack-pkg-2.1.1.zip"
+default['hpcpack']['autoscaler']['package'] = "cyclecloud-hpcpack-pkg-2.1.2.zip"
 
 # HPC Pack Configuration options
 default['hpcpack']['config']['HeartbeatInterval'] = 30

@@ -1,3 +1,4 @@
+include_recipe "hpcpack::_update_path"
 bootstrap_dir = node['cyclecloud']['bootstrap']
 config_dir = "#{node[:cyclecloud][:home]}\\config"
 
