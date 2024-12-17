@@ -2,6 +2,7 @@
 # Cookbook Name:: hpcpack
 # Recipe:: autostart
 #
+include_recipe "hpcpack::_update_path"
 
 config_dir = "#{node['cyclecloud']['home']}\\config"
 bootstrap_dir = node['cyclecloud']['bootstrap']
