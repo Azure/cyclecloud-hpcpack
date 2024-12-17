@@ -17,7 +17,7 @@ CYCLECLOUD_API_VERSION = "8.1.0"
 def build_sdist() -> str:
     cmd = [sys.executable, "setup.py", "sdist", "--formats=zip"]
     check_call(cmd, cwd=os.path.abspath("hpcpack-autoscaler"))
-    sdists = glob.glob("hpcpack-autoscaler/dist/cyclecloud-hpcpack-*.zip")
+    sdists = glob.glob("hpcpack-autoscaler/dist/cyclecloud_hpcpack-*.zip")
     assert len(sdists) == 1, "Found %d sdist packages, expected 1" % len(sdists)
     path = sdists[0]
     fname = os.path.basename(path)
@@ -117,7 +117,7 @@ def execute() -> None:
         #_add(os.path.join("packages", dep), dep_path)
         packages.append(dep_path)
 
-    check_call(['pip', 'download'] + packages, cwd=build_dir)
+    check_call(['pip', 'download', '--only-binary=:all:', '--platform', 'any'] + packages, cwd=build_dir)
 
     print("Using build dir", build_dir)
     for fil in os.listdir(build_dir):
