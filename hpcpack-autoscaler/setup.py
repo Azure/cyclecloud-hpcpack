@@ -129,7 +129,7 @@ setup(
     },
     install_requires=["requests == 2.32.0", "typing_extensions"]
     + ["certifi>=2019.3.9", "chardet>=3.0.4", "idna>=2.8,<3", "urllib3==1.25.11", "pytz>=2018.5"],  # noqa: W503
-    tests_require=["pytest==3.2.3"],
+    tests_require=["pytest==9.0.3"],
     cmdclass={"test": PyTest, "format": Formatter, "types": TypeChecking},
     url="http://www.cyclecomputing.com",
     maintainer="Cycle Computing",
