@@ -188,6 +188,13 @@ class HpcPackCLI(clilib.CommonCLI):
             "--hn-hostname", default="localhost", dest="hpcpack__hn_hostname"
         )
 
+        parser.add_argument(
+            "--verify-certificates",
+            action="store_true",
+            default=False,
+            dest="hpcpack__verify_certificates"
+        )
+
 
 
         

@@ -138,6 +138,10 @@ class HpcRestClient:
     ) -> None:
         self.hostname = hostname
         self._pem = pem
+        self.config = config
+
+        hpcpack_config = config.get("hpcpack") or {}
+        self._verify_certificates = hpcpack_config.get("verify_certificates", False)
 
         logging.initialize_logging(config)
         # self.logger = logging_aux.init_logger_aux("hpcframework.restclient", 'hpcframework.restclient.log')
@@ -151,7 +155,7 @@ class HpcRestClient:
     ) -> Response:
         headers = {"Content-Type": "application/json"}
         url = function_route.format(self.hostname)
-        res = requests.get(url, headers=headers, verify=False, params=params, cert=self._pem)
+        res = requests.get(url, headers=headers, verify=self._verify_certificates, params=params, cert=self._pem)
         try:
             res.raise_for_status()
             logging.info("{}: {}".format(function_name, str(res.content)))
@@ -168,7 +172,7 @@ class HpcRestClient:
     ) -> Response:
         headers = {"Content-Type": "application/json"}
         url = function_route.format(self.hostname)
-        res = requests.post(url, data=data, headers=headers, verify=False, cert=self._pem)
+        res = requests.post(url, data=data, headers=headers, verify=self._verify_certificates, cert=self._pem)
         try:
             res.raise_for_status()
             logging.info("{} resp: {}".format(function_name, str(res.content)))
@@ -350,4 +354,3 @@ class HpcRestClient:
         res = self._post(self.add_node_to_node_group.__name__, self.ADD_NODES_TO_NODE_GROUP_ROUTE.format(
             group_name=group_name), json.dumps(node_names))
         return json.loads(res.content)
-
